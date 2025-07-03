@@ -8,7 +8,7 @@ This project is a **smart biometric-based door access system** developed under t
 
 * **Real-time Face Recognition** using `face_recognition` library
 * **Liveness Detection** powered by **SilentFaceAntiSpoofing** (MiniFASNet models)
-* **User Registration & Authentication** system
+* **User Authentication** system
 * **Login/Logout Tracking** with timestamped logs
 * **Spoof Protection** against photos/videos
 
