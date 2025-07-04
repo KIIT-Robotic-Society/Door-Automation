@@ -1,6 +1,6 @@
 # Door-Automation
 
-### 🔐 Door Automation System — *KRS Society Project*
+### 🔐 Door Automation System — *KRS Project*
 
 This project is a **smart biometric-based door access system** developed under the **KRS Society**. It combines **face recognition** and **anti-spoofing detection** to ensure secure and contactless access control.
 
