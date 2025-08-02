@@ -72,11 +72,10 @@ To develop a **contactless, real-time, and spoof-proof** door access control sys
        └─────┬───────┘
              │
              ▼
- ┌────────────────────────────┐
- │ Log Activity with Timestamp│
- │     (Success / Fail)       │
- └────────────────────────────┘
-
+      ┌────────────────────────────┐
+      │ Log Activity with Timestamp│
+      │      (Success / Fail)      │
+      └────────────────────────────┘
 
 ---
 
