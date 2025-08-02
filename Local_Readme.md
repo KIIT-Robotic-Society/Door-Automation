@@ -1,4 +1,4 @@
-### ✅ `LOCAL_README.md`
+### `LOCAL_README.md`
 
 ````markdown
 # 🔐 Door Automation – Local Setup Guide
