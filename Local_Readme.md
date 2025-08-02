@@ -66,17 +66,24 @@ pip install torch torchvision
 ## 📂 Project Structure
 
 ```
-Door-Automation/
-├── encodings.py                  # Script to register and save face encodings
-├── test.py                       # Main script for spoof detection + recognition
-├── train.py                      # (Optional) For training spoof model
-├── liveness_model/               # Pretrained anti-spoofing models
-├── face_data/                    # Stores captured face images
-├── attendance_logs/              # Access log files with timestamps
-├── assets/
-│   └── Attendance.png            # Background UI image
-├── requirements.txt              # All Python dependencies
-└── LOCAL_README.md               # This setup guide
+.
+├── .ipynb_checkpoints/                  # Jupyter auto-saves
+├── SilentFaceAntiSpoofing/             # Anti-spoofing model code
+│   ├── src/                             # Model scripts (train/test/utils)
+│   ├── weights/                         # Pretrained MiniFASNet models
+│   └── ...                              # Other necessary files
+├── __pycache__/                        # Python cache
+├── db/                                 # Stores known encodings
+│   └── encodings.pickle
+├── dlib-19.24.99-cp312-cp312-win_amd64.whl    # Dlib wheel (Windows)
+├── dlib_face_recognition_resnet_model_v1.dat.bz2  # Dlib face model
+├── shape_predictor_68_face_landmarks.dat.bz2     # Face landmarks model
+├── encodings.pickle                    # Pickled face encodings
+├── modelinit.ipynb                     # Notebook to run main logic
+├── requirements.txt                    # Python dependencies
+├── README.md                           # GitHub README
+└── Local_Readme.md                     # Detailed local setup guide
+
 ```
 
 ---
