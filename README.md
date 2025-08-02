@@ -61,19 +61,22 @@ To develop a **contactless, real-time, and spoof-proof** door access control sys
       │  Liveness Verification │
       └───────┬───────┬────────┘
               │       │
-      [Liveness Pass] │
               │       ▼
-              │  [Liveness Fail]
-              ▼       │
-   ┌────────────────┐ │
-   │   Open Door     │ │
-   └────────────────┘ │
-              │       │
-              ▼       ▼
-     ┌────────────────────────┐
-     │ Log Activity with       │
-     │ Timestamp (Success/Fail)│
-     └────────────────────────┘
+              │   [Liveness Fail]
+              ▼
+     [Liveness Pass]
+              │
+              ▼
+       ┌─────────────┐
+       │  Open Door  │
+       └─────┬───────┘
+             │
+             ▼
+ ┌────────────────────────────┐
+ │ Log Activity with Timestamp│
+ │     (Success / Fail)       │
+ └────────────────────────────┘
+
 
 ---
 
