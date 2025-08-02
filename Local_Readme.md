@@ -9,10 +9,10 @@ The system uses face recognition and liveness (anti-spoofing) detection to contr
 
 Make sure you have the following installed:
 
-- Python 3.8+
-- pip
+- Python 3.8 or higher
+- pip (Python package manager)
 - OpenCV-compatible webcam
-- (Optional) NVIDIA GPU + CUDA (for faster inference)
+- (Optional) NVIDIA GPU with CUDA support for faster inference
 
 ---
 
@@ -51,10 +51,10 @@ source venv/bin/activate
 pip install -r requirements.txt
 ```
 
-If you encounter torch-related issues, install using the official URL:
+If you face issues with torch installation, install manually using the official PyTorch URL:
 
 ```bash
-# For GPU (replace 'cu118' with your CUDA version if needed)
+# For GPU (change cu118 to your CUDA version if different)
 pip install torch torchvision --index-url https://download.pytorch.org/whl/cu118
 
 # OR for CPU only
@@ -67,15 +67,15 @@ pip install torch torchvision
 
 ```
 Door-Automation/
-├── encodings.py                  # Stores face encodings
-├── test.py                       # Runs spoof detection and recognition
-├── train.py                      # (If available, for spoof model training)
-├── liveness_model/               # Contains pre-trained anti-spoofing models
-├── face_data/                    # Directory for saved face images
-├── attendance_logs/              # Logs for access (timestamped)
+├── encodings.py                  # Script to register and save face encodings
+├── test.py                       # Main script for spoof detection + recognition
+├── train.py                      # (Optional) For training spoof model
+├── liveness_model/               # Pretrained anti-spoofing models
+├── face_data/                    # Stores captured face images
+├── attendance_logs/              # Access log files with timestamps
 ├── assets/
-│   └── Attendance.png            # UI background
-├── requirements.txt              # Python dependencies
+│   └── Attendance.png            # Background UI image
+├── requirements.txt              # All Python dependencies
 └── LOCAL_README.md               # This setup guide
 ```
 
@@ -83,22 +83,22 @@ Door-Automation/
 
 ## 🚀 How to Use
 
-### ✅ Step 1: Register a New User
+### ✅ Step 1: Register a New Face
 
-Run the face encoding script to register a new face:
+Run the encoding script to capture and save a new face embedding:
 
 ```bash
 python encodings.py
 ```
 
-- Captures images from webcam
-- Generates and stores face embeddings in a `.pkl` file
+- The script will open your webcam.
+- Capture images and generate `.pkl` file of face encodings.
 
 ---
 
-### ✅ Step 2: Run the Authentication System
+### ✅ Step 2: Run the Main System
 
-Start the door authentication system:
+Start the face recognition and spoof detection system:
 
 ```bash
 python test.py
@@ -106,17 +106,22 @@ python test.py
 
 What happens:
 
-- Captures real-time webcam input  
-- Performs face recognition using DeepFace  
-- Runs liveness (spoof) detection using a pre-trained model  
-- Logs results with a timestamp  
-- Opens door (simulated) if verification passes
+- Webcam input is streamed live
+- Face is recognized using DeepFace
+- Spoof check (liveness detection) is performed
+- Access decision (Allow/Deny) is made
+- Action is logged with timestamp
+- Door open is simulated (can be integrated with hardware)
 
 ---
 
 ## 📒 Logs & Outputs
 
-- Access attempts are logged here:  
+- Access logs are automatically saved to:  
   `attendance_logs/access_log.csv`
 
----
+Each entry contains:
+
+- User status (recognized/spoof)
+- Date and time
+- Pass/Fail result
