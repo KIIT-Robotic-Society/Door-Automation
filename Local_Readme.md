@@ -18,6 +18,7 @@ Make sure you have the following installed:
 - Optional: NVIDIA GPU + CUDA (for faster inference)
 
 ---
+````
 
 ## 🧰 Installation Steps
 
@@ -26,7 +27,7 @@ Make sure you have the following installed:
 ```bash
 git clone https://github.com/KIIT-Robotic-Society/Door-Automation.git
 cd Door-Automation
-````
+
 
 ---
 
