@@ -67,18 +67,17 @@ pip install torch torchvision
 
 ```
 .
-├── .ipynb_checkpoints/                  # Jupyter auto-saves
 ├── SilentFaceAntiSpoofing/             # Anti-spoofing model code
 │   ├── src/                             # Model scripts (train/test/utils)
 │   ├── weights/                         # Pretrained MiniFASNet models
 │   └── ...                              # Other necessary files
 ├── __pycache__/                        # Python cache
-├── db/                                 # Stores known encodings
+├── db/                                 # Stores rough encodings
 │   └── encodings.pickle
 ├── dlib-19.24.99-cp312-cp312-win_amd64.whl    # Dlib wheel (Windows)
 ├── dlib_face_recognition_resnet_model_v1.dat.bz2  # Dlib face model
 ├── shape_predictor_68_face_landmarks.dat.bz2     # Face landmarks model
-├── encodings.pickle                    # Pickled face encodings
+├── encodings.pickle                    # Pickled face real encodings
 ├── modelinit.ipynb                     # Notebook to run main logic
 ├── requirements.txt                    # Python dependencies
 ├── README.md                           # GitHub README
