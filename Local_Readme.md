@@ -1,6 +1,3 @@
-### `LOCAL_README.md`
-
-````markdown
 # 🔐 Door Automation – Local Setup Guide
 
 This document provides a step-by-step guide to set up and run the Door Automation system locally.  
@@ -14,33 +11,32 @@ Make sure you have the following installed:
 
 - Python 3.8+
 - pip
-- OpenCV compatible webcam
-- Optional: NVIDIA GPU + CUDA (for faster inference)
+- OpenCV-compatible webcam
+- (Optional) NVIDIA GPU + CUDA (for faster inference)
 
 ---
-````
 
 ## 🧰 Installation Steps
 
-### 1. Clone the Repository
+### 🔹 Step 1: Clone the Repository
 
 ```bash
 git clone https://github.com/KIIT-Robotic-Society/Door-Automation.git
 cd Door-Automation
-
+```
 
 ---
 
-### 2. Create and Activate Virtual Environment
+### 🔹 Step 2: Create and Activate Virtual Environment
 
-#### Windows
+#### For Windows:
 
 ```bash
 python -m venv venv
 venv\Scripts\activate
 ```
 
-#### Linux/macOS
+#### For Linux/macOS:
 
 ```bash
 python3 -m venv venv
@@ -49,13 +45,13 @@ source venv/bin/activate
 
 ---
 
-### 3. Install Python Dependencies
+### 🔹 Step 3: Install Python Dependencies
 
 ```bash
 pip install -r requirements.txt
 ```
 
-If you encounter torch-related issues, install with the official URL:
+If you encounter torch-related issues, install using the official URL:
 
 ```bash
 # For GPU (replace 'cu118' with your CUDA version if needed)
@@ -87,7 +83,7 @@ Door-Automation/
 
 ## 🚀 How to Use
 
-### ✅ 1. Register a New User
+### ✅ Step 1: Register a New User
 
 Run the face encoding script to register a new face:
 
@@ -95,13 +91,14 @@ Run the face encoding script to register a new face:
 python encodings.py
 ```
 
-It captures images and generates embeddings stored in a `.pkl` file.
+- Captures images from webcam
+- Generates and stores face embeddings in a `.pkl` file
 
 ---
 
-### ✅ 2. Run the System (Recognition + Liveness)
+### ✅ Step 2: Run the Authentication System
 
-To start the door authentication system:
+Start the door authentication system:
 
 ```bash
 python test.py
@@ -109,17 +106,17 @@ python test.py
 
 What happens:
 
-* Captures real-time webcam input
-* Performs face recognition using DeepFace
-* Runs spoof detection using pretrained model
-* Logs results with timestamp
-* Opens door (mocked) if verification passes
+- Captures real-time webcam input  
+- Performs face recognition using DeepFace  
+- Runs liveness (spoof) detection using a pre-trained model  
+- Logs results with a timestamp  
+- Opens door (simulated) if verification passes
 
 ---
 
 ## 📒 Logs & Outputs
 
-* Access attempts and results are logged in:
+- Access attempts are logged here:  
   `attendance_logs/access_log.csv`
----
 
+---
