@@ -12,11 +12,17 @@ import torch
 import torch.nn.functional as F
 import math
 from torch import nn
+import RPi.GPIO as GPIO
+#import time
+
 
 # threading + helpers
 import threading, queue
 from collections import deque, Counter
 
+RELAY_PIN = 17
+GPIO.setmode(GPIO.BCM)
+GPIO.setup(RELAY_PIN, GPIO.OUT)
 # --- CameraReader & majority_vote (background reader + debouncing) ---
 class CameraReader:
     """Background camera reader that keeps only the latest frames (no backlog)."""
@@ -74,7 +80,7 @@ def majority_vote(history_deque, min_count=3):
     if most is None:
         return "Unknown"
     return most if cnt >= min_count else "Unknown"
-# -------------------------------------------------------------------
+
 
 sys.path.append(os.path.join('SilentFaceAntiSpoofing'))
 from SilentFaceAntiSpoofing.src.model_lib.MiniFASNet import MiniFASNetV1, MiniFASNetV2, MiniFASNetV1SE, MiniFASNetV2SE
@@ -184,6 +190,8 @@ else:
     print(f"[INFO] Loaded {len(encodeDict)} known user encodings.")
 
 
+
+
 def is_real_face(image_frame):
     image_bbox = anti_spoof_model.get_bbox(image_frame)
     if image_bbox is None: return 0, None
@@ -219,12 +227,18 @@ def recognize_face(rgb_frame, known_encodings_dict, tolerance=0.45):
         if not isinstance(enc_list, (list, tuple, np.ndarray)):
             enc_list = [enc_list]
 
-        # Compare against all known encodings for this person
+ 
         matches = face_recognition.compare_faces(enc_list, face_enc_to_check, tolerance=tolerance)
         if True in matches:
             return name
 
     return "Unknown"
+
+
+def unlock_door(duration = 3):
+	GPIO.output(RELAY_PIN, GPIO.HIGH)
+	time.sleep(duration)
+	GPIO.output(RELAY_PIN, GPIO.LOW)
 
 
 def recognize_face_strict(rgb_frame, known_encodings_dict, tolerance=0.48):
@@ -391,7 +405,8 @@ def start_live_check(camera_indices=(0,1,2,3,4,5), process_every_n=6, queue_size
                 cv2.rectangle(frame, (x, y), (x+w, y+h), box_color, 2)
                 # label selection: show confirmed_name, and mark Spoof if spoof detected
                 if confirmed_name != "Unknown":
-                    label_text = f"{confirmed_name}"
+                    print(f"{confirmed_name}")
+                    unlock_door(duration = 3)
                 else:
                     label_text = "Spoof" if last_live_label != 1 else "Unknown"
                 y_text = y - 10 if y - 10 > 10 else y + h + 25
@@ -403,6 +418,9 @@ def start_live_check(camera_indices=(0,1,2,3,4,5), process_every_n=6, queue_size
             else:
                 cv2.putText(frame, "No face detected", (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.75, (255,255,255), 2)
 
+            import atexit
+            atexit.register(GPIO.cleanup)          
+
             # Stable FPS using sliding timestamp window
             now = time.time()
             fps_timestamps.append(now)
@@ -412,7 +430,7 @@ def start_live_check(camera_indices=(0,1,2,3,4,5), process_every_n=6, queue_size
             cv2.putText(frame, f"FPS: {fps_display:.1f}", (10, frame.shape[0]-10),
                         cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255,255,0), 2)
 
-            cv2.imshow('Live Anti-Spoof', frame)
+           # cv2.imshow('Live Anti-Spoof', frame)
             key = cv2.waitKey(1) & 0xFF
             if key == ord('q'):
                 break
@@ -446,22 +464,15 @@ def capture_once():
             else:
                 print("[RESULT] Spoof detected!")
 
-            # Save snapshot if you want
-            cv2.imwrite("last_snapshot.jpg", frame)
+            
+            break  
 
-            break  # ✅ Exit loop after detection
-
-        cv2.imshow("Camera", frame)
+        #cv2.imshow("Camera", frame)
         if cv2.waitKey(1) & 0xFF == ord('q'):  # Press q to quit manually
             break
 
     cap.release()
     cv2.destroyAllWindows()
-
-
-    
-# --------------------------------------------------------------------
-
 
 def main():
     # Directly start the stabilized live anti-spoof + recognition.
