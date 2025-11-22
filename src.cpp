@@ -1,4 +1,4 @@
-// client_menu.cpp
+// compile: g++ src.cpp -o src -lcurl -pthread
 #include <iostream>
 #include <thread>
 #include <chrono>
@@ -7,13 +7,17 @@
 #include "json.hpp"
 
 using json = nlohmann::json;
+
 const std::string API_URL = "http://127.0.0.1:8000";
-const std::string API_KEY = "uBJjvkPOIFJguPO"; // api key
+const std::string API_KEY = "uBJjvkPOIFJguPO";
 
 std::atomic<bool> q_flag(false);
-std::atomic<bool> live_started(false);
-std::atomic<bool> heartbeat_running(true);
 std::atomic<bool> live_polling_running(false);
+std::atomic<bool> heartbeat_running(true);
+
+std::thread live_thread;     
+std::thread heartbeat_thread;
+
 
 static size_t WriteCallback(void* contents, size_t size, size_t nmemb, void* userp) {
     ((std::string*)userp)->append((char*)contents, size * nmemb);
@@ -37,8 +41,9 @@ json get_json(const std::string& url) {
 
         CURLcode res = curl_easy_perform(curl);
         if(res == CURLE_OK) {
-            try { j = json::parse(readBuffer); } catch(...) { j = json::object(); }
+            try { j = json::parse(readBuffer); } catch(...) {}
         }
+
         curl_slist_free_all(headers);
         curl_easy_cleanup(curl);
     }
@@ -59,112 +64,129 @@ json post_json(const std::string& url) {
         curl_easy_setopt(curl, CURLOPT_HTTPHEADER, headers);
         curl_easy_setopt(curl, CURLOPT_POST, 1L);
         curl_easy_setopt(curl, CURLOPT_POSTFIELDSIZE, 0L);
+
         curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, WriteCallback);
         curl_easy_setopt(curl, CURLOPT_WRITEDATA, &readBuffer);
         curl_easy_setopt(curl, CURLOPT_TIMEOUT, 5L);
 
         CURLcode res = curl_easy_perform(curl);
         if(res == CURLE_OK) {
-            try { j = json::parse(readBuffer); } catch(...) { j = json::object(); }
+            try { j = json::parse(readBuffer); } catch(...) {}
         }
+
         curl_slist_free_all(headers);
         curl_easy_cleanup(curl);
     }
     return j;
 }
 
+
 void heartbeat_loop() {
     while(heartbeat_running) {
-        get_json(API_URL + "/heartbeat"); // ping silently
+        get_json(API_URL + "/heartbeat");
         std::this_thread::sleep_for(std::chrono::seconds(1));
     }
 }
 
-void live_polling_loop() {
-    live_polling_running = true;
-    int consecutive_arka = 0;
 
-    while(live_polling_running) {
+void live_polling_loop() {
+    int iterative_detection = 0;
+    std::string casting_name = "";
+    bool casting_bit = true;
+
+    while (live_polling_running) {
         json status = get_json(API_URL + "/live/status");
 
-        if(status.contains("name") && status["name"].is_string()) {
+        if (status.contains("name") && status["name"].is_string()) {
             std::string name = status["name"];
-            if(name != "Unknown") {
-                if(name == "Arka") {
-                    consecutive_arka++;
-                    if(consecutive_arka >= 2) { 
-                        q_flag = true;
-                        std::this_thread::sleep_for(std::chrono::seconds(3));
-                        q_flag = false;
-                        consecutive_arka = 0;
-                        std::cout << "[LIVE STATUS] Detected: Arka [Q FLAG ACTIVATED]\n";
-                    }
+
+            if (name != "Unknown" && name != "Spoof") {
+
+                if (name == casting_name) {
+                    iterative_detection++;
                 } else {
-                    consecutive_arka = 0;
+                    casting_name = name;
+                    iterative_detection = 1;
+                    casting_bit = true;
                 }
 
-                if(name != "Arka") {
-                    std::cout << "[LIVE STATUS] Detected: " << name << "\n";
+                if (casting_bit && iterative_detection >= 3) {
+
+                    std::cout << "[STATUS] Detected: " << name << std::endl;
+
+                    q_flag = true;
+                    std::this_thread::sleep_for(std::chrono::seconds(1));
+                    q_flag = false;
+
+                    casting_bit = false;  
                 }
+                
+            } else {
+                iterative_detection = 0;
             }
         }
-
-        std::this_thread::sleep_for(std::chrono::seconds(2));
+        std::this_thread::sleep_for(std::chrono::seconds(1));
     }
-}
-
-void list_faces() {
-    json j = get_json(API_URL + "/faces");
-    std::cout << j.dump(4) << "\n";
 }
 
 
 void start_live() {
-    if(live_started) {
-        std::cout << "[INFO] Live already running\n";
+    if(live_polling_running) {
+        std::cout << "[INFO] Live is already running.\n";
         return;
     }
+
     json j = post_json(API_URL + "/live/start");
     if(j.contains("status") && (j["status"] == "started" || j["status"] == "already_running")) {
-        live_started = true;
-        std::cout << "[INFO] Live started\n";
-        std::thread(live_polling_loop).detach();
-    } else {
+        
+        live_polling_running = true;
+        live_thread = std::thread(live_polling_loop);
+
+        std::cout << "[INFO] Live started.\n";
+    } 
+    else {
         std::cout << j.dump(4) << "\n";
     }
 }
 
 void stop_live() {
-    if(!live_started) {
-        std::cout << "[INFO] Live is not running\n";
+    if(!live_polling_running) {
+        std::cout << "[INFO] Live is not running.\n";
         return;
     }
+
     post_json(API_URL + "/live/stop");
     live_polling_running = false;
-    live_started = false;
-    std::cout << "[INFO] Live stopped\n";
+
+    if(live_thread.joinable()) live_thread.join();
+
+    std::cout << "[INFO] Live stopped.\n";
+}
+
+void list_faces() {
+    json j = get_json(API_URL + "/faces");
+    std::cout << j.dump(4) << std::endl;
 }
 
 void get_logs() {
     json j = get_json(API_URL + "/logs");
-    std::cout << j.dump(4) << "\n";
+    std::cout << j.dump(4) << std::endl;
 }
 
 int main() {
     curl_global_init(CURL_GLOBAL_DEFAULT);
 
-    std::thread heartbeat_thread(heartbeat_loop);
-    heartbeat_thread.detach();
+    heartbeat_thread = std::thread(heartbeat_loop);
 
     int choice;
     while(true) {
-        std::cout << "\n--- MENU ---\n";
-        std::cout << "1. List faces\n";
-        std::cout << "2. Start live\n";
-        std::cout << "3. Stop live\n";
-        std::cout << "4. Get logs\n";
-        std::cout << "5. Exit\n";
-        std::cout << "Choice: ";
+        std::cout << "--- MENU ---"<<std::endl;
+        std::cout << "1. List faces"<<std::endl;
+        std::cout << "2. Start live"<<std::endl;
+        std::cout << "3. Stop live"<<std::endl;
+        std::cout << "4. Get logs"<<std::endl;
+        std::cout << "5. Exit"<<std::endl;
+        std::cout << "Choice: "<<std::endl;
         std::cin >> choice;
 
         switch(choice) {
@@ -174,15 +196,21 @@ int main() {
             case 4: get_logs(); break;
             case 5:
                 heartbeat_running = false;
+                if(heartbeat_thread.joinable()) heartbeat_thread.join();
+
                 live_polling_running = false;
+                if(live_thread.joinable()) live_thread.join();
+
                 curl_global_cleanup();
+                std::cout << "[INFO] Exiting cleanly.\n";
                 return 0;
-            default: std::cerr << "Invalid choice\n";
+
+            default:
+                std::cout << "Invalid choice.\n";
         }
 
         std::cout << "[INFO] q_flag = " << q_flag << "\n";
     }
 
-    curl_global_cleanup();
     return 0;
 }
