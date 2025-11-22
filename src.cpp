@@ -1,10 +1,12 @@
-// compile: g++ src.cpp -o src -lcurl -pthread
+// compile: g++ src.cpp -o src -lcurl -pthread -lgpiodcxx
+
 #include <iostream>
 #include <thread>
 #include <chrono>
 #include <atomic>
 #include <curl/curl.h>
 #include "json.hpp"
+#include <gpiod.hpp>
 
 using json = nlohmann::json;
 
@@ -15,6 +17,9 @@ std::atomic<bool> q_flag(false);
 std::atomic<bool> live_polling_running(false);
 std::atomic<bool> heartbeat_running(true);
 
+gpiod::chip chip("gpiochip0");  
+gpiod::line gpio = chip.get_line(17); 
+
 std::thread live_thread;     
 std::thread heartbeat_thread;
 
@@ -22,6 +27,16 @@ std::thread heartbeat_thread;
 static size_t WriteCallback(void* contents, size_t size, size_t nmemb, void* userp) {
     ((std::string*)userp)->append((char*)contents, size * nmemb);
     return size * nmemb;
+}
+
+void gpio_call(){
+gpiod::line_request config{
+    "face-detector",
+    gpiod::line_request::DIRECTION_OUTPUT,
+    0
+};
+gpio.request(config);
+
 }
 
 json get_json(const std::string& url) {
@@ -113,10 +128,13 @@ void live_polling_loop() {
                 if (casting_bit && iterative_detection >= 3) {
 
                     std::cout << "[STATUS] Detected: " << name << std::endl;
-
+                    gpio.set_value(1);
+                    std::cout<<"GPIO HIGH"<<std::endl;
                     q_flag = true;
                     std::this_thread::sleep_for(std::chrono::seconds(1));
                     q_flag = false;
+                    gpio.set_value(0);
+                    std::cout<<"GPIO LOW"<<std::endl;
 
                     casting_bit = false;  
                 }
@@ -175,6 +193,8 @@ void get_logs() {
 
 int main() {
     curl_global_init(CURL_GLOBAL_DEFAULT);
+    gpio_call();
+    
 
     heartbeat_thread = std::thread(heartbeat_loop);
 
