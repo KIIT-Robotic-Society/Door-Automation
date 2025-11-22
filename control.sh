@@ -22,7 +22,3 @@ fi
 
 echo "[INFO] Running Src"
 ./src
-
-echo
-echo "[INFO] ./src finished execution."
-echo "--------------------------------------"

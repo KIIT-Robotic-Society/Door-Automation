@@ -193,6 +193,7 @@ void get_logs() {
     std::cout << j.dump(4) << std::endl;
 }
 
+
 int main() {
     curl_global_init(CURL_GLOBAL_DEFAULT);
     gpio_call();
