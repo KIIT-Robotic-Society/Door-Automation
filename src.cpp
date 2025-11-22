@@ -118,14 +118,6 @@ void list_faces() {
     std::cout << j.dump(4) << "\n";
 }
 
-void add_face_camera() {
-    std::string name;
-    std::cout << "Enter name to add: ";
-    std::cin >> name;
-    std::string url = API_URL + "/face/add_camera?name=" + name;
-    json j = post_json(url);
-    std::cout << j.dump(4) << "\n";
-}
 
 void start_live() {
     if(live_started) {
@@ -168,21 +160,19 @@ int main() {
     while(true) {
         std::cout << "\n--- MENU ---\n";
         std::cout << "1. List faces\n";
-        std::cout << "2. Add face by camera\n";
-        std::cout << "3. Start live\n";
-        std::cout << "4. Stop live\n";
-        std::cout << "5. Get logs\n";
-        std::cout << "6. Exit\n";
+        std::cout << "2. Start live\n";
+        std::cout << "3. Stop live\n";
+        std::cout << "4. Get logs\n";
+        std::cout << "5. Exit\n";
         std::cout << "Choice: ";
         std::cin >> choice;
 
         switch(choice) {
             case 1: list_faces(); break;
-            case 2: add_face_camera(); break;
-            case 3: start_live(); break;
-            case 4: stop_live(); break;
-            case 5: get_logs(); break;
-            case 6:
+            case 2: start_live(); break;
+            case 3: stop_live(); break;
+            case 4: get_logs(); break;
+            case 5:
                 heartbeat_running = false;
                 live_polling_running = false;
                 curl_global_cleanup();

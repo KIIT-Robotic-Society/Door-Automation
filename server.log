@@ -1,0 +1,61 @@
+nohup: ignoring input
+[INFO] Initializing models...
+[INFO] Using device: cpu
+[INFO] models initialized successfully 
+[INFO] Loading encodings...
+[INFO] Loaded 3 known user encodings.
+[INFO] Starting API at http://127.0.0.1:8000
+INFO:     Started server process [30138]
+INFO:     Waiting for application startup.
+INFO:     Application startup complete.
+INFO:     Uvicorn running on http://127.0.0.1:8000 (Press CTRL+C to quit)
+INFO:     127.0.0.1:54722 - "GET /heartbeat HTTP/1.1" 200 OK
+INFO:     127.0.0.1:54732 - "GET /heartbeat HTTP/1.1" 200 OK
+INFO:     127.0.0.1:54738 - "GET /heartbeat HTTP/1.1" 200 OK
+INFO:     127.0.0.1:54754 - "GET /faces HTTP/1.1" 200 OK
+INFO:     127.0.0.1:54756 - "GET /heartbeat HTTP/1.1" 200 OK
+INFO:     127.0.0.1:54772 - "GET /heartbeat HTTP/1.1" 200 OK
+INFO:     127.0.0.1:54776 - "GET /heartbeat HTTP/1.1" 200 OK
+INFO:     127.0.0.1:34808 - "GET /heartbeat HTTP/1.1" 200 OK
+INFO:     127.0.0.1:34822 - "GET /heartbeat HTTP/1.1" 200 OK
+INFO:     127.0.0.1:34832 - "GET /heartbeat HTTP/1.1" 200 OK
+INFO:     127.0.0.1:34842 - "GET /heartbeat HTTP/1.1" 200 OK
+INFO:     127.0.0.1:34848 - "POST /live/start HTTP/1.1" 200 OK
+INFO:     127.0.0.1:34858 - "GET /live/status HTTP/1.1" 200 OK
+INFO:     127.0.0.1:34874 - "GET /heartbeat HTTP/1.1" 200 OK
+Warning: Ignoring XDG_SESSION_TYPE=wayland on Gnome. Use QT_QPA_PLATFORM=wayland to run on Wayland anyway.
+INFO:     127.0.0.1:34876 - "GET /heartbeat HTTP/1.1" 200 OK
+INFO:     127.0.0.1:34890 - "GET /live/status HTTP/1.1" 200 OK
+INFO:     127.0.0.1:34894 - "GET /heartbeat HTTP/1.1" 200 OK
+INFO:     127.0.0.1:34900 - "GET /heartbeat HTTP/1.1" 200 OK
+INFO:     127.0.0.1:34902 - "GET /live/status HTTP/1.1" 200 OK
+INFO:     127.0.0.1:34918 - "GET /heartbeat HTTP/1.1" 200 OK
+INFO:     127.0.0.1:34926 - "GET /heartbeat HTTP/1.1" 200 OK
+INFO:     127.0.0.1:38074 - "GET /heartbeat HTTP/1.1" 200 OK
+INFO:     127.0.0.1:38076 - "GET /heartbeat HTTP/1.1" 200 OK
+INFO:     127.0.0.1:38078 - "GET /heartbeat HTTP/1.1" 200 OK
+INFO:     127.0.0.1:38080 - "GET /live/status HTTP/1.1" 200 OK
+INFO:     127.0.0.1:38090 - "GET /heartbeat HTTP/1.1" 200 OK
+INFO:     127.0.0.1:38096 - "GET /heartbeat HTTP/1.1" 200 OK
+INFO:     127.0.0.1:38108 - "GET /live/status HTTP/1.1" 200 OK
+INFO:     127.0.0.1:38112 - "GET /heartbeat HTTP/1.1" 200 OK
+INFO:     127.0.0.1:38118 - "GET /heartbeat HTTP/1.1" 200 OK
+INFO:     127.0.0.1:38126 - "GET /heartbeat HTTP/1.1" 200 OK
+INFO:     127.0.0.1:38142 - "GET /heartbeat HTTP/1.1" 200 OK
+INFO:     127.0.0.1:38154 - "GET /heartbeat HTTP/1.1" 200 OK
+INFO:     127.0.0.1:38160 - "GET /live/status HTTP/1.1" 200 OK
+INFO:     127.0.0.1:49900 - "GET /heartbeat HTTP/1.1" 200 OK
+INFO:     127.0.0.1:49904 - "GET /heartbeat HTTP/1.1" 200 OK
+INFO:     127.0.0.1:49916 - "GET /live/status HTTP/1.1" 200 OK
+INFO:     127.0.0.1:49930 - "GET /heartbeat HTTP/1.1" 200 OK
+INFO:     127.0.0.1:49938 - "GET /heartbeat HTTP/1.1" 200 OK
+INFO:     127.0.0.1:49944 - "GET /logs HTTP/1.1" 200 OK
+INFO:     127.0.0.1:49956 - "GET /heartbeat HTTP/1.1" 200 OK
+INFO:     127.0.0.1:49966 - "GET /heartbeat HTTP/1.1" 200 OK
+INFO:     127.0.0.1:49982 - "GET /heartbeat HTTP/1.1" 200 OK
+INFO:     127.0.0.1:49992 - "GET /live/status HTTP/1.1" 200 OK
+INFO:     127.0.0.1:50004 - "GET /heartbeat HTTP/1.1" 200 OK
+[INFO] Camera released
+INFO:     127.0.0.1:50006 - "POST /live/stop HTTP/1.1" 200 OK
+INFO:     127.0.0.1:50010 - "GET /heartbeat HTTP/1.1" 200 OK
+INFO:     127.0.0.1:50016 - "GET /heartbeat HTTP/1.1" 200 OK
