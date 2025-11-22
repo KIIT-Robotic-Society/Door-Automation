@@ -1,4 +1,6 @@
 // compile: g++ src.cpp -o src -lcurl -pthread -lgpiodcxx
+//sudo apt install libcurl4-openssl-dev, sudo apt install libgpiod-dev libgpiod-doc libgpiod2
+
 
 #include <iostream>
 #include <thread>
