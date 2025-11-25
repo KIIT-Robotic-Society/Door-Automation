@@ -38,6 +38,7 @@ gpiod::line_request config{
     0
 };
 gpio.request(config);
+gpio.set_value(0);
 
 }
 
@@ -197,11 +198,10 @@ void get_logs() {
 int main() {
     curl_global_init(CURL_GLOBAL_DEFAULT);
     gpio_call();
-    
 
     heartbeat_thread = std::thread(heartbeat_loop);
-
-    int choice;
+    int choice;\
+    
     while(true) {
         std::cout << "--- MENU ---"<<std::endl;
         std::cout << "1. List faces"<<std::endl;
