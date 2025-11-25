@@ -1,0 +1,15 @@
+
+*.server.pid
+
+
+*.log
+*.log.txt
+
+
+*.json.hpp
+*.json_fwd.hpp
+
+
+*.encoding.pickle
+*.requirements.txt
+*.dlib_face_recognition_resnet_model_v1.dat.bz2
