@@ -467,7 +467,7 @@ def list_faces():
             print(f"  {i}. {name}")
 
 def main():
-    """"
+    """
     while True:
         print("\n" + "="*50)
         print("FACE RECOGNITION SYSTEM (OPTIMIZED)")
