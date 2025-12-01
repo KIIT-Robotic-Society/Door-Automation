@@ -16,7 +16,6 @@ from threading import Thread, Lock
 from queue import Queue 
 import concurrent.futures 
 import warnings
-import sys
 import threading
 
 stop_live_flag = threading.Event()
@@ -77,7 +76,7 @@ class Detection:
         deploy = os.path.join('SilentFaceAntiSpoofing', 'resources', 'detection_model', 'deploy.prototxt')
         
         if not os.path.exists(caffemodel) or not os.path.exists(deploy): 
-            raise FileNotFoundError; warnings.warn("[WARNING] Detection model files not found")
+            raise FileNotFoundError("Detection model files not found")
         
         self.detector = cv2.dnn.readNetFromCaffe(deploy, caffemodel)
         self.detector_confidence = 0.6 
@@ -98,7 +97,7 @@ class Detection:
         
         blob = cv2.dnn.blobFromImage(img_resized, 1, mean=(104, 117, 123))
         
-        with self.lock:  # Thread-safe inference
+        with self.lock:
             self.detector.setInput(blob, 'data')
             out = self.detector.forward('detection_out').squeeze()
         
@@ -165,13 +164,13 @@ print("[INFO] Initializing models...")
 try:
     anti_spoof_model = AntiSpoofPredict(DEVICE_ID)
     image_cropper = CropImage()
-    print("[INFO] models initialized successfully ")
+    print("[INFO] Models initialized successfully")
 except Exception as e:
     print(f"[ERROR] Failed to initialize models: {e}", file=sys.stderr)
     sys.exit(1)
 
 if not os.path.exists(ENCODINGS_PATH):
-    warnings.warn(f"Encodings file not found at '{ENCODINGS_PATH}'.")
+    print(f"[WARNING] Encodings file not found at '{ENCODINGS_PATH}'.")
     print("[INFO] You'll need to add faces before recognition can work.")
     encodeDict = {}
 else:
@@ -223,7 +222,6 @@ def recognize_face_fast(rgb_frame, tolerance=0.6):
             return "Unknown"
         
         face_enc_to_check = current_encodings[0]
-        
         matches = face_recognition.compare_faces(known_encodings, face_enc_to_check, tolerance=tolerance)
         
         if True in matches:
@@ -244,7 +242,7 @@ def is_real_face_parallel(image_frame):
         model_filenames = [f for f in os.listdir(MODEL_DIR) if f.endswith(('.pth', '.onnx'))]
         
         if not model_filenames:
-            warnings.warn(f"[WARNING] No model files found in {MODEL_DIR}")
+            print(f"[WARNING] No model files found in {MODEL_DIR}", file=sys.stderr)
             return 0, image_bbox
     
         crops_and_models = []
@@ -261,7 +259,7 @@ def is_real_face_parallel(image_frame):
                 img = image_cropper.crop(**param)
                 crops_and_models.append((img, os.path.join(MODEL_DIR, model_name)))
             except Exception as e:
-                warnings.warn(f"[WARNING] Could not parse model name '{model_name}': {e}")
+                print(f"[WARNING] Could not parse model name '{model_name}': {e}", file=sys.stderr)
                 continue
         
         predictions = []
@@ -279,9 +277,8 @@ def is_real_face_parallel(image_frame):
         return label, image_bbox
         
     except Exception as e:
-        print(f"[ERROR] Error in spoof detection: {e}",file=sys.stderr)
+        print(f"[ERROR] Error in spoof detection: {e}", file=sys.stderr)
         return 0, None
-
 
 class FrameProcessor(Thread):
     def __init__(self):
@@ -308,7 +305,7 @@ class FrameProcessor(Thread):
                 else:
                     time.sleep(0.01)  
             except Exception as e:
-                print(f"[ERROR] Frame processing error: {e}",file=sys.stderr)
+                print(f"[ERROR] Frame processing error: {e}", file=sys.stderr)
     
     def stop(self):
         self.running = False
@@ -321,14 +318,14 @@ def add_face_encoding_indi(name, img):
         
         label, bbox = is_real_face_parallel(img)
         if label != 1:
-            warnings.warn("[WARNING] Spoof detected or no face found. Cannot add encoding.")
+            print("[WARNING] Spoof detected or no face found. Cannot add encoding.")
             return False
         
         boxes = face_recognition.face_locations(rgb_img, model='hog')
         encodings = face_recognition.face_encodings(rgb_img, boxes, num_jitters=1)
         
         if not encodings:
-            warnings.warn("[WARNING] No face encoding found in image.")
+            print("[WARNING] No face encoding found in image.")
             return False
         
         encodeDict[name] = encodings[0]
@@ -337,23 +334,24 @@ def add_face_encoding_indi(name, img):
         return True
         
     except Exception as e:
-        print(f"[ERROR] Failed to add face encoding: {e}",file=sys.stderr)
+        print(f"[ERROR] Failed to add face encoding: {e}", file=sys.stderr)
         return False
 
 def delete_face_encoding(name):
-    """Delete a face encoding by name."""
     global encodeDict
     
     if name in encodeDict:
         del encodeDict[name]
         save_encodings()
         print(f"[INFO] Deleted encoding for {name}")
+        return True
     else:
-        warnings.warn(f"[WARNING] No encoding found for {name}")
-        print(f"[INFO] Available names: {', '.join(encodeDict.keys())}")
+        print(f"[WARNING] No encoding found for '{name}'")
+        if encodeDict:
+            print(f"[INFO] Available names: {', '.join(encodeDict.keys())}")
+        return False
 
 def recognize_uploaded_image(image_path):
-    """Recognize face from uploaded image file."""
     if not encodeDict:
         print("[ERROR] No encodings loaded. Please add faces first.", file=sys.stderr)
         return
@@ -372,7 +370,7 @@ def recognize_uploaded_image(image_path):
         label, bbox = is_real_face_parallel(img)
         
         if label != 1:
-            warnings.warn("[WARNING] Spoof attempt detected or no face found.")
+            print("[WARNING] Spoof attempt detected or no face found.")
             return
         
         name = recognize_face_fast(rgb_img)
@@ -384,11 +382,21 @@ def recognize_uploaded_image(image_path):
     except Exception as e:
         print(f"[ERROR] Error processing image: {e}", file=sys.stderr)
 
-
 def start_live_check(show_window=True, shared_last_detection=None, stop_flag=None):
-
-    import warnings, datetime, cv2
-
+    
+    # Initialize defaults if not provided
+    if stop_flag is None:
+        stop_flag = threading.Event()
+    
+    if shared_last_detection is None:
+        shared_last_detection = last_detection
+    
+    if not encodeDict:
+        print("[WARNING] No encodings loaded. Recognition will not work until faces are added.")
+        response = input("Continue anyway? (y/n): ")
+        if response.lower() != 'y':
+            return
+    
     video_capture = cv2.VideoCapture(0)
     if not video_capture.isOpened():
         print("[ERROR] Could not open video stream.", file=sys.stderr)
@@ -397,52 +405,79 @@ def start_live_check(show_window=True, shared_last_detection=None, stop_flag=Non
     video_capture.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
     video_capture.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
     video_capture.set(cv2.CAP_PROP_FPS, 30)
+    
+    print("[INFO] Starting live camera feed. Press 'q' to quit.")
 
     processor = FrameProcessor()
     processor.start()
+    
     current_result = (0, None, "Unknown")
+    last_recognized = None
+    last_log_time = None
 
     try:
         while not stop_flag.is_set():
             ret, frame = video_capture.read()
             if not ret:
+                print("[WARNING] Failed to capture frame")
                 continue
 
+            # Send frame for processing if queue not full
             if processor.frame_queue.qsize() < 2:
                 processor.frame_queue.put(frame.copy())
 
+            # Get latest result if available
             if not processor.result_queue.empty():
                 current_result = processor.result_queue.get()
 
             live_label, bbox, name = current_result
+            
+            # Handle logging
+            if name != "Unknown" and live_label == 1:
+                current_time = datetime.datetime.now()
+                if (last_recognized != name or 
+                    last_log_time is None or 
+                    (current_time - last_log_time).seconds > 60):
+                    log_entry(name, current_time)
+                    last_recognized = name
+                    last_log_time = current_time
 
-            if shared_last_detection is not None:
-                shared_last_detection.update({
-                    "label": int(live_label),
-                    "bbox": bbox,
-                    "name": name if live_label == 1 else "Spoof",
-                    "time": datetime.datetime.now().isoformat()
-                })
+            # Update shared detection data
+            shared_last_detection.update({
+                "label": int(live_label),
+                "bbox": bbox,
+                "name": name if live_label == 1 else "Spoof",
+                "time": datetime.datetime.now().isoformat()
+            })
 
+            # Display if window is enabled
             if show_window:
-                display_text = shared_last_detection.get("name", "Unknown")
-                color = (0, 255, 0) if live_label == 1 else (0, 0, 255)
+                display_text = name if live_label == 1 else "Spoof"
+                text_color = (0, 255, 0) if (live_label == 1 and name != "Unknown") else (0, 0, 255)
 
                 if bbox is not None:
                     x, y, w, h = bbox
-                    cv2.rectangle(frame, (x, y), (x+w, y+h), color, 2)
+                    box_color = (0, 255, 0) if live_label == 1 else (0, 0, 255)
+                    cv2.rectangle(frame, (x, y), (x+w, y+h), box_color, 2)
                     y_text = y - 10 if y - 10 > 10 else y + h + 25
                     cv2.putText(frame, display_text, (x, y_text),
-                                cv2.FONT_HERSHEY_SIMPLEX, 0.75, color, 2)
+                                cv2.FONT_HERSHEY_SIMPLEX, 0.75, text_color, 2)
                 else:
                     cv2.putText(frame, "No face detected", (10, 30),
                                 cv2.FONT_HERSHEY_SIMPLEX, 0.75, (255, 255, 255), 2)
+                
+                # Show queue size
+                cv2.putText(frame, f"Queue: {processor.frame_queue.qsize()}", 
+                           (10, frame.shape[0] - 10),
+                           cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 1)
 
                 cv2.imshow("Face Recognition", frame)
                 if cv2.waitKey(1) & 0xFF == ord('q'):
                     stop_flag.set()
                     break
 
+    except KeyboardInterrupt:
+        print("\n[INFO] Interrupted by user")
     finally:
         processor.stop()
         processor.join(timeout=2)
@@ -451,23 +486,20 @@ def start_live_check(show_window=True, shared_last_detection=None, stop_flag=Non
             cv2.destroyAllWindows()
         print("[INFO] Camera released")
 
-
 def get_last_detection():
-
     global last_detection
     return last_detection
 
-
 def list_faces():
     if not encodeDict:
-        warnings.warn("[WARNING] No faces stored yet.")
+        print("[INFO] No faces stored yet.")
     else:
         print(f"\n[INFO] Stored faces ({len(encodeDict)}):")
         for i, name in enumerate(encodeDict.keys(), 1):
             print(f"  {i}. {name}")
 
 def main():
-    """
+    """"
     while True:
         print("\n" + "="*50)
         print("FACE RECOGNITION SYSTEM (OPTIMIZED)")
@@ -529,19 +561,29 @@ def main():
         elif choice == '3':
             print("\n[INFO] Delete face mode")
             list_faces()
-            name = input("Enter the name to delete: ").strip()
+            if not encodeDict:
+                continue
+            
+            name = input("\nEnter the name to delete: ").strip()
+            if not name:
+                print("[ERROR] Name cannot be empty.")
+                continue
+                
             delete_face_encoding(name)
         
         elif choice == '4':
             print("\n[INFO] Recognize from image file")
             image_path = input("Enter the path to the image: ").strip()
+            if not image_path:
+                print("[ERROR] Path cannot be empty.")
+                continue
             recognize_uploaded_image(image_path)
         
         elif choice == '5':
             list_faces()
         
         elif choice == '6':
-            print("\n[INFO] Exiting...")
+            print("\n[INFO] Exiting... Goodbye!")
             break
         
         else:
