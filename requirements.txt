@@ -1,5 +1,0 @@
-opencv-python
-face_recognition
-numpy
-torch
-torchvision

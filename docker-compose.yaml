@@ -1,0 +1,32 @@
+services:
+  door-automation:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        TARGET: ${TARGET}
+    container_name: door-automation
+
+    profiles: ["cpu", "gpu", "jetson", "pi"]
+
+    privileged: true
+
+    devices:
+      - /dev/video0:/dev/video0
+      - /dev/gpiochip0:/dev/gpiochip0
+
+    environment:
+      - DISPLAY=${DISPLAY:-:0}
+      - PYTHONUNBUFFERED=1
+
+    volumes:
+      - ./:/app
+      - /tmp/.X11-unix:/tmp/.X11-unix:rw
+
+    ports:
+      - "8000:8000"
+
+    restart: unless-stopped
+
+    # Keeps container alive without running your scripts automatically
+    command: ["sleep", "infinity"]
