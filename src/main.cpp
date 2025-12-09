@@ -9,6 +9,7 @@
 #include <curl/curl.h>
 #include "json.hpp"
 #include <gpiod.hpp>
+#include <single.hpp>
 
 using json = nlohmann::json;
 
@@ -200,7 +201,7 @@ int main() {
     gpio_call();
 
     heartbeat_thread = std::thread(heartbeat_loop);
-    int choice;\
+    int choice;
     
     while(true) {
         std::cout << "--- MENU ---"<<std::endl;
@@ -234,6 +235,25 @@ int main() {
 
         std::cout << "[INFO] q_flag = " << q_flag << "\n";
     }
+
+    /*   DistanceSensor ds(50000, 200); 
+
+    if (!ds.begin()) {
+        std::cerr << "Sensor init failed!" << std::endl;
+        return 1;
+    }
+
+    while (true) {
+        uint16_t distance = ds.read();
+
+        if (ds.timeoutOccurred()) {
+            std::cout << "timeout\n";
+        } else {
+            std::cout << distance << " mm\n";
+        }
+
+        std::this_thread::sleep_for(std::chrono::milliseconds(100));
+    }*/
 
     return 0;
 }

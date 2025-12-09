@@ -29,6 +29,5 @@ services:
       - "8000:8000"
 
     restart: unless-stopped
-
-    # Keeps container alive without running your scripts automatically
+    
     command: ["sleep", "infinity"]
