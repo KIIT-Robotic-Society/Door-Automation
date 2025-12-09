@@ -16,12 +16,14 @@ services:
       - /dev/gpiochip0:/dev/gpiochip0
 
     environment:
-      - DISPLAY=${DISPLAY:-:0}
+      - DISPLAY=${DISPLAY}
       - PYTHONUNBUFFERED=1
+      - QT_X11_NO_MITSHM=1  
+      - LIBGL_ALWAYS_SOFTWARE=1
 
     volumes:
       - ./:/app
-      - /tmp/.X11-unix:/tmp/.X11-unix:rw
+      - /tmp/.X11-unix:/tmp/.X11-unix
 
     ports:
       - "8000:8000"

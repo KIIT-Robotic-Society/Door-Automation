@@ -47,6 +47,3 @@ else
     echo "[WARN] src binary not found — skipping."
 fi
 
-echo "==============================="
-echo "✔ Backend successfully launched"
-echo "==============================="

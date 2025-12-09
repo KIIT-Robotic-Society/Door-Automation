@@ -70,6 +70,8 @@ fi
 
 if ! groups $USER | grep -q "\bdocker\b"; then
     echo "[INFO] Adding user to docker group..."
+    xhost +si:localuser:root
+    xhost +local:docker
     sudo usermod -aG docker $USER
     sudo usermod -aG video $USER
     echo "Logout & login again after this script (permission will apply)."
@@ -77,7 +79,7 @@ fi
 
 
 echo "----------------------------------------------"
-echo "🐋 Building and running container..."
+echo "🐋"
 echo "----------------------------------------------"
 docker compose down --remove-orphans 2>/dev/null
 
