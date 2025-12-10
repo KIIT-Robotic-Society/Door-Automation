@@ -445,6 +445,48 @@ def recognize_uploaded_image(image_path):
             
     except Exception as e:
         print(f"[ERROR] Error processing image: {e}", file=sys.stderr)
+        
+def add_face_from_image(name, image_path):
+    """Add a new face encoding from a static image file."""
+    global encodeDict
+
+    if not os.path.exists(image_path):
+        print(f"[ERROR] Image file not found: {image_path}")
+        return False
+
+    img = cv2.imread(image_path)
+    if img is None:
+        print(f"[ERROR] Could not read image: {image_path}")
+        return False
+
+    # Anti-spoofing check
+    label, bbox = is_real_face_parallel(img)
+    if label != 1:
+        print("[WARNING] Spoof detected or no real face found. Cannot add encoding.")
+        return False
+
+    rgb_img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
+    boxes = face_recognition.face_locations(rgb_img, model='hog')
+
+    if len(boxes) == 0:
+        print("[ERROR] No face detected in the image.")
+        return False
+
+    encodings = face_recognition.face_encodings(rgb_img, boxes)
+
+    if len(encodings) == 0:
+        print("[ERROR] Failed to generate face encoding.")
+        return False
+
+    if name not in encodeDict:
+        encodeDict[name] = []
+
+    encodeDict[name].append(encodings[0])
+    save_encodings()
+
+    print(f"[INFO] Successfully added {name} from image.")
+    return True
+
 
 def start_live_check(show_window=True, shared_last_detection=None, stop_flag=None):
     """Start live camera feed with face recognition and anti-spoofing"""
@@ -593,53 +635,76 @@ def main():
         
         elif choice == '2':
             print("\n[INFO] Add face mode")
+
+            print("1: Add face from webcam")
+            print("2: Add face from image file")
+            sub_choice = input("Choose method (1/2): ").strip()
+
             name = input("Enter the name of the person: ").strip()
-            
             if not name:
                 print("[ERROR] Name cannot be empty.")
                 continue
-            
-            # Handle existing names
+
+            # handle existing persons
             if name in encodeDict:
-                response = input(f"[INFO] {name} already exists. Add another encoding? (y/n): ")
-                if response.lower() != 'y':
+                resp = input(f"[INFO] '{name}' already exists. Add another encoding? (y/n): ").strip().lower()
+                if resp != "y":
                     continue
-            else:
-                response = 'y'  
 
-            # Capture face from camera
-            cv2.destroyAllWindows()
-            time.sleep(0.2)
+            #image from webcam         
+            if sub_choice == '1':
+                cv2.destroyAllWindows()
+                time.sleep(0.2)
 
-            cap = cv2.VideoCapture(0)
-            if not cap.isOpened():
-                print("[ERROR] Could not open camera.")
-                continue
-            
-            cap.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
-            cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
-            
-            print("[INFO] Position face in frame. Capturing in 3 seconds...")
-            
-            # Countdown timer
-            for i in range(3, 0, -1):
-                ret, frame = cap.read()
-                if ret:
-                    cv2.putText(frame, f"Capturing in {i}...", (50, 50), 
-                               cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2)
-                    cv2.imshow('Add Face', frame)
-                    cv2.waitKey(1000)
-            
-            # Capture and add encoding
-            ret, img = cap.read()
-            if ret:
+                cap = cv2.VideoCapture(0)
+                if not cap.isOpened():
+                    print("[ERROR] Could not open camera.")
+                    continue
+
+                cap.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
+                cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
+
+                print("[INFO] Position face in frame. Capturing in 3 seconds...")
+
+                # countdown
+                for i in range(3, 0, -1):
+                    ret, frame = cap.read()
+                    if ret:
+                        cv2.putText(frame, f"Capturing in {i}...", (50, 50),
+                        cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2)
+                        cv2.imshow("Add Face", frame)
+                        cv2.waitKey(1000)
+
+                        ret, img = cap.read()
+                        cap.release()
+                        cv2.destroyAllWindows()
+
+                if not ret:
+                    print("[ERROR] Failed to capture image.")
+                    continue
+
+                # add encoding from webcam frame
                 add_face_encoding_indi(name, img)
+                continue
+
+            # add form image
+            elif sub_choice == '2':
+                image_path = input("Enter image path: ").strip()
+                if not image_path:
+                    print("[ERROR] Image path cannot be empty.")
+                    continue
+
+            # use new function you added
+            result = add_face_from_image(name, image_path)
+
+            if result:
+                print(f"[INFO] Successfully added encoding for '{name}' from image.")
+                continue
+
             else:
-                print("[ERROR] Failed to capture image.")
-            
-            cap.release()
-            cv2.destroyAllWindows()
-        
+                print("[ERROR] Invalid option. Please enter 1 or 2.")
+                continue
+
         elif choice == '3':
             print("\n[INFO] Delete face mode")
             list_faces()
