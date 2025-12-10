@@ -35,9 +35,12 @@ RUN if [ "$TARGET" = "cuda-x86" ]; then \
     fi
 
 RUN if [ "$TARGET" = "jetson" ]; then \
-      python3.10 -m pip install torch==2.1.0+nv23.08 torchvision==0.16.0+nv23.08 torchaudio==2.1.0 \
-      --extra-index-url https://pypi.nvidia.com ; \
+      python3.10 -m pip install \
+        https://developer.download.nvidia.com/compute/redist/jp/v512/pytorch/torch-2.1.0-cp310-cp310-linux_aarch64.whl \
+        https://developer.download.nvidia.com/compute/redist/jp/v512/pytorch/torchvision-0.16.0-cp310-cp310-linux_aarch64.whl \
+        torchaudio==2.1.0 ; \
     fi
+
 
 RUN if [ "$TARGET" = "pi" ] || [ "$TARGET" = "cpu-x86" ]; then \
       python3.10 -m pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cpu ; \

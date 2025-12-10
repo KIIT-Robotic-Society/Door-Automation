@@ -183,16 +183,12 @@ else:
         print(f"[ERROR] Failed to load encodings: {e}", file=sys.stderr)
         encodeDict = {}
 
-known_names = list(encodeDict.keys())
-known_encodings = list(encodeDict.values())
 
 def save_encodings():
     global known_names, known_encodings
     try:
         with open(ENCODINGS_PATH, "wb") as f:
             pickle.dump(encodeDict, f)
-        known_names = list(encodeDict.keys())
-        known_encodings = list(encodeDict.values())
         print(f"[INFO] Encodings saved successfully.")
     except Exception as e:
         print(f"[ERROR] Failed to save encodings: {e}", file=sys.stderr)
@@ -206,32 +202,45 @@ def log_entry(name, timestamp=None):
     except Exception as e:
         print(f"[ERROR] Failed to write to log: {e}", file=sys.stderr)
 
-def recognize_face_fast(rgb_frame, tolerance=0.6):
-    if not known_encodings:
+def recognize_face_fast(rgb_frame, tolerance=0.45):
+    if not encodeDict:
         return "Unknown"
-    
+
     try:
-        boxes = face_recognition.face_locations(rgb_frame, model='cnn' if torch.cuda.is_available() else 'hog', number_of_times_to_upsample=1)
-        
+        boxes = face_recognition.face_locations(
+            rgb_frame,
+            model='cnn' if torch.cuda.is_available() else 'hog',
+            number_of_times_to_upsample=1
+        )
+
         if not boxes:
             return "Unknown"
-        
-        current_encodings = face_recognition.face_encodings(rgb_frame, boxes, num_jitters=1)
-        
-        if not current_encodings:
+
+        encodings = face_recognition.face_encodings(rgb_frame, boxes, num_jitters=1)
+        if not encodings:
             return "Unknown"
-        
-        face_enc_to_check = current_encodings[0]
-        matches = face_recognition.compare_faces(known_encodings, face_enc_to_check, tolerance=tolerance)
-        
-        if True in matches:
-            first_match_index = matches.index(True)
-            return known_names[first_match_index]
-        
-        return "Unknown"
+
+        face_enc_to_check = encodings[0]
+
+        best_name = "Unknown"
+        best_distance = 1.0
+        for name, enc_list in encodeDict.items():
+            if not isinstance(enc_list, list):
+                enc_list = [enc_list]
+
+            distances = face_recognition.face_distance(enc_list, face_enc_to_check)
+            min_dist = min(distances)
+
+            if min_dist < tolerance and min_dist < best_distance:
+                best_distance = min_dist
+                best_name = name
+
+        return best_name
+
     except Exception as e:
         print(f"[ERROR] Error in face recognition: {e}", file=sys.stderr)
         return "Unknown"
+
 
 def is_real_face_parallel(image_frame):
     try:
@@ -328,9 +337,11 @@ def add_face_encoding_indi(name, img):
             print("[WARNING] No face encoding found in image.")
             return False
         
-        encodeDict[name] = encodings[0]
+        if name not in encodeDict:
+            encodeDict[name] = []
+        encodeDict[name].append(encodings[0])
         save_encodings()
-        print(f"[INFO] Face encoding added for {name}")
+        print(f"[INFO] Added encoding #{len(encodeDict[name])} for {name}")
         return True
         
     except Exception as e:
@@ -501,6 +512,8 @@ def list_faces():
 def main():
     
     while True:
+        cv2.destroyAllWindows()
+
         print("\n" + "="*50)
         print("FACE RECOGNITION SYSTEM (OPTIMIZED)")
         print("="*50)
@@ -525,12 +538,17 @@ def main():
             if not name:
                 print("[ERROR] Name cannot be empty.")
                 continue
-            
             if name in encodeDict:
-                response = input(f"[WARNING] {name} already exists. Overwrite? (y/n): ")
-                if response.lower() != 'y':
-                    continue
+                response = input(f"[INFO] {name} already exists. Add another encoding? (y/n): ")
+            if response.lower() != 'y':
+                continue
+            else:
+                response = 'y'  
+
             
+            cv2.destroyAllWindows()
+            time.sleep(0.2)
+
             cap = cv2.VideoCapture(0)
             if not cap.isOpened():
                 print("[ERROR] Could not open camera.")

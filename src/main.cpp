@@ -43,19 +43,17 @@ std::mutex mtx;
 std::condition_variable cv;
 bool sensor_trigger = false;
 
-
 std::thread heartbeat_thread;
 std::thread sensor_thread;
 std::thread live_thread;
 std::thread live_controller_thread;
-
 
 std::unique_ptr<gpiod::chip> chip_ptr;
 std::unique_ptr<gpiod::line> gpio_line_ptr;
 
 
 void signal_handler(int) {
-    WARN("SIGINT received. Shutting down...");
+    INFO("SIGINT received. Shutting down...");
     program_running = false;
     heartbeat_running = false;
     cv.notify_all();
@@ -86,7 +84,6 @@ json get_json(const std::string& url) {
     if (curl_easy_perform(curl) == CURLE_OK) {
         try { j = json::parse(readBuffer); } catch (...) {}
     }
-
     curl_slist_free_all(headers);
     curl_easy_cleanup(curl);
     return j;
@@ -150,7 +147,7 @@ void gpio_set(int v) {
 void heartbeat_loop() {
     while (heartbeat_running && program_running) {
         get_json(API_URL + "/heartbeat");
-        std::this_thread::sleep_for(std::chrono::seconds(3));
+        std::this_thread::sleep_for(std::chrono::seconds(5));
     }
 }
 
