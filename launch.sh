@@ -14,13 +14,13 @@ echo "==============================="
 
 echo "[INFO] Rebuilding project using CMake..."
 
+rm -rf "$BUILD_DIR"
 mkdir -p "$BUILD_DIR"
 cd "$BUILD_DIR"
 
-
 cmake ..
-
 make -j$(nproc)
+
 if [[ $? -ne 0 ]]; then
     echo "[ERROR] C++ build failed!"
     exit 1
@@ -28,6 +28,7 @@ fi
 
 cd ..
 chmod +x "$BIN_PATH"
+
 echo "[INFO] Build complete: $BIN_PATH"
 
 
