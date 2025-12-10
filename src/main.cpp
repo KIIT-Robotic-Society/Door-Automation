@@ -1,4 +1,3 @@
-
 // compile: g++ src.cpp -o src -lcurl -pthread -lgpiodcxx
 
 #include <iostream>
@@ -12,46 +11,107 @@
 #include "json.hpp"
 #include <gpiod.hpp>
 #include <single.hpp>
+#include <fstream>
+#include <ctime>
+#include <iomanip>
 
 using json = nlohmann::json;
 
-#define INFO(msg)      std::cout << "[INFO] " << msg << std::endl
-#define WARN(msg)      std::cout << "[WARNING] " << msg << std::endl
-#define ERROR(msg)     std::cout << "[ERROR] " << msg << std::endl
-#define SENSORLOG(msg) std::cout << "[SENSOR] " << msg << std::endl
-#define CTRLLOG(msg)   std::cout << "[CTRL] " << msg << std::endl
+// logging macros
+#define INFO(msg)      log_message("INFO", msg)
+#define WARN(msg)      log_message("WARNING", msg)
+#define ERROR(msg)     log_message("ERROR", msg)
+#define SENSORLOG(msg) log_message("SENSOR", msg)
+#define CTRLLOG(msg)   log_message("CTRL", msg)
 
+// configuration constants
 const std::string API_URL = "http://127.0.0.1:8000";
 const std::string API_KEY = "uBJjvkPOIFJguPO";
+const std::string LOG_FILE = "system.log";
 
-constexpr int SENSOR_THRESHOLD_MM     = 200;
-constexpr int LIVE_DURATION_SECONDS   = 30;
-constexpr unsigned int GPIO_LINE      = 17;
-constexpr int COOLDOWN_SECONDS        = 60;   
+// sensor and timing configuration
+constexpr int SENSOR_THRESHOLD_MM     = 200;  // distance threshold for triggering door
+constexpr int LIVE_DURATION_SECONDS   = 30;   // max time to wait for face recognition
+constexpr unsigned int GPIO_LINE      = 17;   // GPIO pin for door control
+constexpr unsigned int GPIO_IDLE_LINE = 27;   // Indicator for idle state
+constexpr unsigned int GPIO_LIVE_LINE = 22;   // Indicator for live/ML active
+constexpr int COOLDOWN_SECONDS        = 60;   // prevent duplicate triggers for same person
 
+// Polling and network configuration
+constexpr int POLLING_INTERVAL_MS     = 200;  // how often to poll live status
+constexpr int FACE_CONFIRM_COUNT      = 10;   // consecutive detections needed (10 * 200ms = 2 sec)
+constexpr int HEARTBEAT_INTERVAL_SEC  = 5;    // API health check interval
+constexpr int SENSOR_POLL_INTERVAL_MS = 50;   // sensor reading frequency
+constexpr int CURL_TIMEOUT_SEC        = 10;   // HTTP request timeout
+constexpr int THREAD_JOIN_TIMEOUT_SEC = 5;    // max wait time for thread shutdown
+
+// GPIO timing
+constexpr int GPIO_HIGH_DURATION_SEC  = 1;    // how long to keep door unlocked
+
+
+// global state variables
+
+// last recognized person tracking (for cooldown logic)
 std::string last_triggered_name = "";
 std::chrono::steady_clock::time_point last_trigger_time;
+std::mutex last_trigger_mutex;  // protect access to above variables
 
-
+// thread control flags
 std::atomic<bool> program_running(true);
 std::atomic<bool> heartbeat_running(true);
 std::atomic<bool> live_polling_running(false);
 std::atomic<bool> face_detected(false);
-std::atomic<bool> live_semaphore(false);
+std::atomic<bool> live_semaphore(false);  // prevents sensor trigger while live is active
 
+// synchronization primitives
 std::mutex mtx;
 std::condition_variable cv;
 bool sensor_trigger = false;
 
+// thread handles
 std::thread heartbeat_thread;
 std::thread sensor_thread;
 std::thread live_thread;
 std::thread live_controller_thread;
 
+// GPIO resources
 std::unique_ptr<gpiod::chip> chip_ptr;
 std::unique_ptr<gpiod::line> gpio_line_ptr;
+std::unique_ptr<gpiod::line> gpio_idle_ptr;
+std::unique_ptr<gpiod::line> gpio_live_ptr;
 
 
+// logging system
+std::mutex log_mutex;  // thread-safe logging
+
+void log_message(const std::string& level, const std::string& msg) {
+    std::lock_guard<std::mutex> lock(log_mutex);
+    
+    // get current timestamp
+    auto now = std::chrono::system_clock::now();
+    auto time = std::chrono::system_clock::to_time_t(now);
+    auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(
+        now.time_since_epoch()) % 1000;
+    
+    std::stringstream ss;
+    ss << std::put_time(std::localtime(&time), "%Y-%m-%d %H:%M:%S")
+       << '.' << std::setfill('0') << std::setw(3) << ms.count()
+       << " [" << level << "] " << msg;
+    
+    std::string log_line = ss.str();
+    
+    // console output
+    std::cout << log_line << std::endl;
+    
+    // file output
+    std::ofstream log_file(LOG_FILE, std::ios::app);
+    if (log_file.is_open()) {
+        log_file << log_line << std::endl;
+    }
+}
+
+
+// signal handler
 void signal_handler(int) {
     INFO("SIGINT received. Shutting down...");
     program_running = false;
@@ -60,125 +120,265 @@ void signal_handler(int) {
 }
 
 
+// HTTP UTILITIES WITH ERROR HANDLING
+
+// RAII wrapper for CURL handle
+class CurlHandle {
+private:
+    CURL* curl;
+    
+public:
+    CurlHandle() : curl(curl_easy_init()) {
+        if (curl) {
+            // set timeout to prevent hanging
+            curl_easy_setopt(curl, CURLOPT_TIMEOUT, CURL_TIMEOUT_SEC);
+            curl_easy_setopt(curl, CURLOPT_CONNECTTIMEOUT, CURL_TIMEOUT_SEC);
+        }
+    }
+    
+    ~CurlHandle() {
+        if (curl) {
+            curl_easy_cleanup(curl);
+        }
+    }
+    
+    CURL* get() { return curl; }
+    operator bool() const { return curl != nullptr; }
+    
+    // disable copy
+    CurlHandle(const CurlHandle&) = delete;
+    CurlHandle& operator=(const CurlHandle&) = delete;
+};
+
+// callback for writing HTTP response data
 static size_t WriteCallback(void* contents, size_t size, size_t nmemb, void* userp) {
     ((std::string*)userp)->append((char*)contents, size * nmemb);
     return size * nmemb;
 }
 
-
+// perform HTTP GET request with error handling
 json get_json(const std::string& url) {
-    CURL* curl = curl_easy_init(); 
-    if (!curl) return {};
+    CurlHandle curl;
+    if (!curl) {
+        ERROR("Failed to initialize CURL handle");
+        return {};
+    }
 
     std::string readBuffer;
     json j;
 
+    // set up headers with API key
     struct curl_slist* headers = nullptr;
     headers = curl_slist_append(headers, ("x-api-key: " + API_KEY).c_str());
 
-    curl_easy_setopt(curl, CURLOPT_URL, url.c_str());
-    curl_easy_setopt(curl, CURLOPT_HTTPHEADER, headers);
-    curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, WriteCallback);
-    curl_easy_setopt(curl, CURLOPT_WRITEDATA, &readBuffer);
+    curl_easy_setopt(curl.get(), CURLOPT_URL, url.c_str());
+    curl_easy_setopt(curl.get(), CURLOPT_HTTPHEADER, headers);
+    curl_easy_setopt(curl.get(), CURLOPT_WRITEFUNCTION, WriteCallback);
+    curl_easy_setopt(curl.get(), CURLOPT_WRITEDATA, &readBuffer);
 
-    if (curl_easy_perform(curl) == CURLE_OK) {
-        try { j = json::parse(readBuffer); } catch (...) {}
+    CURLcode res = curl_easy_perform(curl.get());
+    
+    if (res == CURLE_OK) {
+        try { 
+            j = json::parse(readBuffer); 
+        } catch (const std::exception& e) {
+            ERROR("JSON parse error: " + std::string(e.what()));
+        }
+    } else {
+        ERROR("HTTP GET failed: " + std::string(curl_easy_strerror(res)));
     }
+    
     curl_slist_free_all(headers);
-    curl_easy_cleanup(curl);
     return j;
 }
 
+// perform HTTP POST request with error handling
 json post_json(const std::string& url) {
-    CURL* curl = curl_easy_init(); 
-    if (!curl) return {};
+    CurlHandle curl;
+    if (!curl) {
+        ERROR("Failed to initialize CURL handle");
+        return {};
+    }
     
     std::string readBuffer;
     json j;
 
+    // set up headers with API key
     struct curl_slist* headers = nullptr;
     headers = curl_slist_append(headers, ("x-api-key: " + API_KEY).c_str());
     headers = curl_slist_append(headers, "Content-Type: application/x-www-form-urlencoded");
 
-    curl_easy_setopt(curl, CURLOPT_URL, url.c_str());
-    curl_easy_setopt(curl, CURLOPT_HTTPHEADER, headers);
-    curl_easy_setopt(curl, CURLOPT_POST, 1);
-    curl_easy_setopt(curl, CURLOPT_POSTFIELDSIZE, 0);
-    curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, WriteCallback);
-    curl_easy_setopt(curl, CURLOPT_WRITEDATA, &readBuffer);
+    curl_easy_setopt(curl.get(), CURLOPT_URL, url.c_str());
+    curl_easy_setopt(curl.get(), CURLOPT_HTTPHEADER, headers);
+    curl_easy_setopt(curl.get(), CURLOPT_POST, 1);
+    curl_easy_setopt(curl.get(), CURLOPT_POSTFIELDSIZE, 0);
+    curl_easy_setopt(curl.get(), CURLOPT_WRITEFUNCTION, WriteCallback);
+    curl_easy_setopt(curl.get(), CURLOPT_WRITEDATA, &readBuffer);
 
-    if (curl_easy_perform(curl) == CURLE_OK) {
-        try { j = json::parse(readBuffer); } catch (...) {}
+    CURLcode res = curl_easy_perform(curl.get());
+
+    if (res == CURLE_OK) {
+        try { 
+            j = json::parse(readBuffer); 
+        } catch (const std::exception& e) {
+            ERROR("JSON parse error: " + std::string(e.what()));
+        }
+    } else {
+        ERROR("HTTP POST failed: " + std::string(curl_easy_strerror(res)));
     }
 
     curl_slist_free_all(headers);
-    curl_easy_cleanup(curl);
     return j;
 }
-
 
 bool gpio_init(unsigned int line = GPIO_LINE) {
     try {
         chip_ptr = std::make_unique<gpiod::chip>("gpiochip0");
-        gpiod::line raw = chip_ptr->get_line(line);
-        gpio_line_ptr = std::make_unique<gpiod::line>(std::move(raw));
-
-        gpiod::line_request config{
-            "live-system",
-            gpiod::line_request::DIRECTION_OUTPUT,
-            0
-        };
-        gpio_line_ptr->request(config);
-        gpio_line_ptr->set_value(0);
-
-        INFO("GPIO initialized on line " << line);
-        return true;
-    } catch (...) {
-        ERROR("GPIO initialization FAILED");
+    } catch (const std::exception& e) {
+        ERROR("Opening gpiochip0 failed: " + std::string(e.what()));
         return false;
     }
+
+    // ---- door control (GPIO17) 
+    try {
+        gpiod::line raw = chip_ptr->get_line(line);
+        gpio_line_ptr = std::make_unique<gpiod::line>(std::move(raw));
+        gpio_line_ptr->request({"door", gpiod::line_request::DIRECTION_OUTPUT, 0});
+        gpio_line_ptr->set_value(0);
+    } catch (const std::exception& e) {
+        ERROR("Door GPIO init FAILED (line " + std::to_string(line) + "): " + std::string(e.what()));
+        return false;  // cannot run system without door control
+    }
+
+    // ---- idle indicator (GPIO27)
+    try {
+        gpiod::line idle_raw = chip_ptr->get_line(GPIO_IDLE_LINE);
+        gpio_idle_ptr = std::make_unique<gpiod::line>(std::move(idle_raw));
+        gpio_idle_ptr->request({"idle-led", gpiod::line_request::DIRECTION_OUTPUT, 0});
+        gpio_idle_ptr->set_value(1);   // IDLE = ON at boot
+    } catch (const std::exception& e) {
+        WARN("Idle GPIO (line " + std::to_string(GPIO_IDLE_LINE) +
+             ") init failed, continuing without idle LED: " + std::string(e.what()));
+        gpio_idle_ptr.reset();
+    }
+
+    // ---- live indicator (GPIO22)
+    try {
+        gpiod::line live_raw = chip_ptr->get_line(GPIO_LIVE_LINE);
+        gpio_live_ptr = std::make_unique<gpiod::line>(std::move(live_raw));
+        gpio_live_ptr->request({"live-led", gpiod::line_request::DIRECTION_OUTPUT, 0});
+        gpio_live_ptr->set_value(0);   // OFF at boot
+    } catch (const std::exception& e) {
+        WARN("Live GPIO (line " + std::to_string(GPIO_LIVE_LINE) +
+             ") init failed, continuing without live LED: " + std::string(e.what()));
+        gpio_live_ptr.reset();
+    }
+
+    INFO("GPIO initialized: door=" + std::to_string(line) +
+         ", idle=" + std::to_string(GPIO_IDLE_LINE) +
+         ", live=" + std::to_string(GPIO_LIVE_LINE));
+    return true;
 }
+
 
 void gpio_set(int v) {
-    if (!gpio_line_ptr) return;
-    gpio_line_ptr->set_value(v);
-}
-
-void heartbeat_loop() {
-    while (heartbeat_running && program_running) {
-        get_json(API_URL + "/heartbeat");
-        std::this_thread::sleep_for(std::chrono::seconds(5));
+    if (!gpio_line_ptr) {
+        WARN("GPIO not initialized, cannot set value");
+        return;
+    }
+    try {
+        gpio_line_ptr->set_value(v);
+    } catch (const std::exception& e) {
+        ERROR("GPIO set failed: " + std::string(e.what()));
     }
 }
 
+void gpio_cleanup() {
+    try {
+        if (gpio_line_ptr) {
+            gpio_line_ptr->set_value(0);
+            gpio_line_ptr->release();
+            gpio_line_ptr.reset();
+        }
+        if (gpio_idle_ptr) {
+            gpio_idle_ptr->set_value(0);
+            gpio_idle_ptr->release();
+            gpio_idle_ptr.reset();
+        }
+        if (gpio_live_ptr) {
+            gpio_live_ptr->set_value(0);
+            gpio_live_ptr->release();
+            gpio_live_ptr.reset();
+        }
+        chip_ptr.reset();
+        INFO("GPIO cleaned up successfully");
+    } catch (const std::exception& e) {
+        ERROR("GPIO cleanup error: " + std::string(e.what()));
+    }
+}
+
+
+// Heartbeat thread - monitor API health
+void heartbeat_loop() {
+    INFO("Heartbeat thread started");
+    
+    while (heartbeat_running && program_running) {
+        json response = get_json(API_URL + "/heartbeat");
+        
+        // Check if API is responding correctly
+        if (response.empty() || !response.contains("status")) {
+            WARN("Heartbeat failed - API may be down");
+        }
+        
+        std::this_thread::sleep_for(std::chrono::seconds(HEARTBEAT_INTERVAL_SEC));
+    }
+    
+    INFO("Heartbeat thread stopped");
+}
+
+// Live polling thread - check for face recognition results
 void live_polling_loop() {
-    int count = 0;
+    INFO("Live polling thread started");
+    
+    int count = 0;  // consecutive detection counter
     std::string currentName = "";
 
     while (live_polling_running && program_running) {
 
-        if (!last_triggered_name.empty()) {
-            auto now  = std::chrono::steady_clock::now();
-            auto diff = std::chrono::duration_cast<std::chrono::seconds>(now - last_trigger_time).count();
+        // check cooldown status (thread-safe)
+        {
+            std::lock_guard<std::mutex> lock(last_trigger_mutex);
+            if (!last_triggered_name.empty()) {
+                auto now  = std::chrono::steady_clock::now();
+                auto diff = std::chrono::duration_cast<std::chrono::seconds>(
+                    now - last_trigger_time).count();
 
-            if (diff >= COOLDOWN_SECONDS) {
-                INFO("Cooldown expired → resetting last_triggered_name");
-                last_triggered_name.clear();
+                if (diff >= COOLDOWN_SECONDS) {
+                    INFO("Cooldown expired → resetting last_triggered_name");
+                    last_triggered_name.clear();
+                }
             }
         }
 
+        // poll API for current detection status
         json st = get_json(API_URL + "/live/status");
 
         if (st.contains("name")) {
             std::string n = st["name"];
 
-            if (!last_triggered_name.empty() && n == last_triggered_name) {
-                std::this_thread::sleep_for(std::chrono::milliseconds(200));
-                continue;
+            // skip if this person is in cooldown period
+            {
+                std::lock_guard<std::mutex> lock(last_trigger_mutex);
+                if (!last_triggered_name.empty() && n == last_triggered_name) {
+                    std::this_thread::sleep_for(std::chrono::milliseconds(POLLING_INTERVAL_MS));
+                    continue;
+                }
             }
 
+            // only process valid recognitions (not Unknown or Spoof)
             if (n != "Unknown" && n != "Spoof") {
 
+                // check for consistent detection
                 if (n == currentName) {
                     count++;
                 } else {
@@ -186,36 +386,66 @@ void live_polling_loop() {
                     count = 1;
                 }
 
-                if (count >= 10) {
-                    INFO("GPIO-HIGH for " << n);
+                // require multiple consecutive detections to avoid false triggers
+                if (count >= FACE_CONFIRM_COUNT) {
+                    INFO("Face confirmed: " + n + " (" + std::to_string(count) + " detections)");
+                    
+                    // activate door unlock
+                    INFO("GPIO-HIGH for " + n);
                     gpio_set(1);
-                    std::this_thread::sleep_for(std::chrono::seconds(1));
+                    if (gpio_live_ptr) gpio_live_ptr->set_value(0);  // ensure live indicator off during unlock
+                    std::this_thread::sleep_for(std::chrono::seconds(GPIO_HIGH_DURATION_SEC));
                     INFO("GPIO-LOW");
                     gpio_set(0);
+                    if (gpio_idle_ptr) gpio_idle_ptr->set_value(1);   // return to idle mode
 
+
+                    // update state (thread-safe)
                     face_detected = true;
-                    last_triggered_name = n;
-                    last_trigger_time   = std::chrono::steady_clock::now();
+                    {
+                        std::lock_guard<std::mutex> lock(last_trigger_mutex);
+                        last_triggered_name = n;
+                        last_trigger_time   = std::chrono::steady_clock::now();
+                    }
 
-                    break;
+                    break;  // exit polling loop - face recognized
+                }
+            } else {
+                // reset counter if detection is invalid
+                if (count > 0) {
+                    count = 0;
+                    currentName = "";
                 }
             }
         }
 
-        std::this_thread::sleep_for(std::chrono::milliseconds(200));
+        std::this_thread::sleep_for(std::chrono::milliseconds(POLLING_INTERVAL_MS));
     }
+    
+    INFO("Live polling thread stopped");
 }
 
+// Llive control functions
 void start_live() {
+    INFO("Starting live recognition...");
+
+    // Set LED states
+    if (gpio_idle_ptr) gpio_idle_ptr->set_value(0);   // idle OFF
+    if (gpio_live_ptr) gpio_live_ptr->set_value(1);   // live ON
+    
     json j = post_json(API_URL + "/live/start");
 
+    // verify start was successful
     if (!(j.contains("status") &&
           (j["status"] == "started" || j["status"] == "already_running"))) {
 
-        ERROR("Live start FAILED: " << j.dump());
+        ERROR("Live start FAILED: " + j.dump());
         return;
     }
 
+    INFO("Live recognition started successfully");
+    
+    // reset state and start polling thread
     face_detected = false;
     live_polling_running = true;
     live_semaphore = true;
@@ -224,61 +454,145 @@ void start_live() {
 }
 
 void stop_live() {
+    INFO("Stopping live recognition...");
+    
+    // signal polling thread to stop
     live_polling_running = false;
+    
+    // wait for thread with timeout
+    if (live_thread.joinable()) {
+        auto start = std::chrono::steady_clock::now();
+        while (live_thread.joinable()) {
+            auto elapsed = std::chrono::duration_cast<std::chrono::seconds>(
+                std::chrono::steady_clock::now() - start).count();
+                
+            if (elapsed >= THREAD_JOIN_TIMEOUT_SEC) {
+                WARN("Live thread did not stop in time, detaching");
+                live_thread.detach();
+                break;
+            }
+            
+            std::this_thread::sleep_for(std::chrono::milliseconds(100));
+            
+            if (!live_polling_running && live_thread.joinable()) {
+                live_thread.join();
+                break;
+            }
+        }
+    }
+    
+    // stop live feed on API side
     post_json(API_URL + "/live/stop");
 
-    if (live_thread.joinable())
-        live_thread.join();
+    INFO("Live recognition stopped");
 
-    INFO("LIVE STOPPED");
+    // restore LED states
+    if (gpio_live_ptr) gpio_live_ptr->set_value(0);   // live OFF
+    if (gpio_idle_ptr) gpio_idle_ptr->set_value(1);   // idle ON
     live_semaphore = false;
 }
 
+
+// sensor thread - Monitor distance sensor for triggers
 void sensor_loop() {
     INFO("Sensor thread started");
 
     DistanceSensor ds(50000, 200);
-    ds.begin();
+    
+    try {
+        ds.begin();
+    } catch (const std::exception& e) {
+        ERROR("Sensor initialization failed: " + std::string(e.what()));
+        return;
+    }
 
     while (program_running) {
         uint16_t d = ds.read();
 
         if (!ds.timeoutOccurred()) {
+            // trigger only if live is not active and distance below threshold
             if (!live_semaphore && d < SENSOR_THRESHOLD_MM) {
 
-                SENSORLOG("Trigger @ " << d << " mm");
+                SENSORLOG("Trigger @ " + std::to_string(d) + " mm");
 
+                // signal the live controller thread
                 {
                     std::lock_guard<std::mutex> lk(mtx);
                     sensor_trigger = true;
                 }
 
                 cv.notify_one();
+                
+                // debounce delay to prevent multiple rapid triggers
                 std::this_thread::sleep_for(std::chrono::seconds(1));
             }
+        } else {
+            WARN("Sensor timeout occurred");
         }
 
-        std::this_thread::sleep_for(std::chrono::milliseconds(50));
+        std::this_thread::sleep_for(std::chrono::milliseconds(SENSOR_POLL_INTERVAL_MS));
     }
+    
+    INFO("Sensor thread stopped");
 }
 
+// server heartbeat check
+bool server_ready() {
+    json st = get_json(API_URL + "/live/status");
+
+    if (st.empty()) {
+        WARN("API unreachable → Waiting for server...");
+        return false;
+    }
+
+    if (!st.contains("status")) {
+        WARN("API returned malformed response → server not ready");
+        return false;
+    }
+
+    if (st["status"] != "live") {
+        WARN("Server not initialized → status = " + st["status"].get<std::string>());
+        return false;
+    }
+
+    return true;
+}
+
+// live controller thread - sensor triggers and live recognition
 void live_controller_loop() {
+    INFO("Live controller thread started");
+    
     while (program_running) {
 
+        // wait for sensor trigger
         std::unique_lock<std::mutex> lk(mtx);
         cv.wait(lk, [] { return sensor_trigger || !program_running; });
 
         if (!program_running) break;
 
-        SENSORLOG("sensor trigger received");
-
+        SENSORLOG("Sensor trigger received");
         sensor_trigger = false;
         lk.unlock();
 
-        start_live();
+        // wait until server signals "status: live"
+        while (program_running) {
+            if (server_ready()) {
+            INFO("Server ready → Starting live recognition");
+            break;  // <--- correctly breaks only this loop
+            }
 
+            WARN("Server not initialized → trying again...");
+            std::this_thread::sleep_for(std::chrono::seconds(1));
+        }
+
+        // program is shutting down while waiting for server
+        if (!program_running) return;
+
+        // start live recognition
+        start_live();
         auto start = std::chrono::steady_clock::now();
 
+        // wait for face detection or timeout
         while (program_running) {
 
             if (face_detected) {
@@ -289,31 +603,47 @@ void live_controller_loop() {
             if (std::chrono::steady_clock::now() - start >=
                 std::chrono::seconds(LIVE_DURATION_SECONDS)) {
 
-                CTRLLOG("30-second timeout reached");
+                CTRLLOG(std::to_string(LIVE_DURATION_SECONDS) + "-second timeout reached");
                 break;
             }
 
-            std::this_thread::sleep_for(std::chrono::milliseconds(200));
+            std::this_thread::sleep_for(std::chrono::milliseconds(POLLING_INTERVAL_MS));
         }
-
+        // stop live recognition
         stop_live();
     }
+    
+    INFO("Live controller thread stopped");
 }
 
+
 int main() {
+    INFO("=== KRS Door Automation System Starting ===");
+    
+    // register signal handler for graceful shutdown
     signal(SIGINT, signal_handler);
 
+    // initialize libraries
     curl_global_init(CURL_GLOBAL_DEFAULT);
-    gpio_init(GPIO_LINE);
+    
+    if (!gpio_init(GPIO_LINE)) {
+        ERROR("GPIO initialization failed - exiting");
+        return 1;
+    }
 
-    INFO("System started");
+    INFO("System initialized successfully");
 
+    // start all threads
     heartbeat_thread       = std::thread(heartbeat_loop);
     sensor_thread          = std::thread(sensor_loop);
     live_controller_thread = std::thread(live_controller_loop);
 
-    while (program_running)
+    while (program_running) {
         std::this_thread::sleep_for(std::chrono::seconds(1));
+    }
+
+    INFO("Initiating shutdown sequence...");
+
 
     heartbeat_running = false;
     cv.notify_all();
@@ -323,7 +653,10 @@ int main() {
     if (live_controller_thread.joinable()) live_controller_thread.join();
     if (live_thread.joinable())            live_thread.join();
 
-    INFO("System shut down cleanly");
+    // Cleanup resources
+    gpio_cleanup();
     curl_global_cleanup();
+
+    INFO("=== System shut down cleanly ===");
     return 0;
 }
