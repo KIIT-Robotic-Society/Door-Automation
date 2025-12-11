@@ -9,10 +9,9 @@ INPUT=${1,,}
 case $INPUT in
   cpu)    TARGET="cpu-x86";   PROFILE="cpu" ;;
   gpu)    TARGET="cuda-x86";  PROFILE="gpu" ;;
-  jetson) TARGET="jetson";    PROFILE="jetson" ;;
   pi)     TARGET="pi";        PROFILE="pi" ;;
   *)
-    echo "Invalid argument. Usage: ./deploy.sh {cpu|gpu|jetson|pi}"
+    echo "Invalid argument. Usage: ./deploy.sh {cpu|gpu|pi}"
     exit 1
     ;;
 esac

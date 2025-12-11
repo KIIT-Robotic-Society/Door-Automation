@@ -11,14 +11,12 @@ services:
     container_name: door-automation
 
     # compose profiles enable selecting hardware at runtime:
-    #   docker compose --profile jetson up
     #   docker compose --profile gpu up
-    profiles: ["cpu", "gpu", "jetson", "pi"]
+    profiles: ["cpu", "gpu", "pi"]
 
     # privileged mode required for:
     # - GPIO access (libgpiod)
     # - Hardware video devices
-    # on Jetson/RPi this is typically necessary.
     privileged: true
 
     # /dev/video0 → camera

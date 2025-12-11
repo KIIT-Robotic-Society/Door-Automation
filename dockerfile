@@ -11,7 +11,6 @@ ENV PYTHONUNBUFFERED=1
 # build-time argument to select hardware target:
 # - cpu-x86 (default)
 # - cuda-x86
-# - jetson
 # - pi
 ARG TARGET=cpu-x86
 
@@ -64,15 +63,6 @@ RUN python3.10 -m pip install numpy==1.24.3 cmake dlib-bin opencv-python face-re
 RUN if [ "$TARGET" = "cuda-x86" ]; then \
       python3.10 -m pip install torch==2.0.1 torchvision==0.15.2 torchaudio==2.0.2 \
       --index-url https://download.pytorch.org/whl/cu118 ; \
-    fi
-
-# install Jetson ARM PyTorch (L4T wheels, not from PyPI)
-# jetson wheels MUST match JetPack version (here: JP 5.x → v512)
-RUN if [ "$TARGET" = "jetson" ]; then \
-      python3.10 -m pip install \
-        https://developer.download.nvidia.com/compute/redist/jp/v512/pytorch/torch-2.1.0-cp310-cp310-linux_aarch64.whl \
-        https://developer.download.nvidia.com/compute/redist/jp/v512/pytorch/torchvision-0.16.0-cp310-cp310-linux_aarch64.whl \
-        torchaudio==2.1.0 ; \
     fi
 
 # CPU-only PyTorch (used for Raspberry Pi & standard CPU systems)
