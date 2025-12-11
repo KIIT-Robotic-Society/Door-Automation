@@ -65,6 +65,7 @@ MODEL_MAPPING = {
 class CropImage:
     """Crop and resize face region from image based on bounding box"""
     def crop(self, org_img, bbox, scale, out_w, out_h):
+        
         # Calculate face center and scaled bounding box
         face_w, face_h = bbox[2], bbox[3]
         x_center, y_center = bbox[0] + face_w / 2, bbox[1] + face_h / 2
@@ -84,6 +85,7 @@ class CropImage:
 class Detection:
     """Face detection using RetinaFace model"""
     def __init__(self):
+        
         # Load pre-trained RetinaFace model
         caffemodel = os.path.join('SilentFaceAntiSpoofing', 'resources', 'detection_model', 'Widerface-RetinaFace.caffemodel')
         deploy = os.path.join('SilentFaceAntiSpoofing', 'resources', 'detection_model', 'deploy.prototxt')
@@ -497,38 +499,51 @@ def start_live_check(show_window=True, shared_last_detection=None, stop_flag=Non
     if shared_last_detection is None:
         shared_last_detection = last_detection
     
+    shared_last_detection["status"] = "ready"
+    print("[INFO] ✓ Status set to 'ready' - C++ can now proceed", flush=True)
+    
     if not encodeDict:
-        print("[WARNING] No encodings loaded. Recognition will not work until faces are added.")
-        response = input("Continue anyway? (y/n): ")
-        if response.lower() != 'y':
-            return
+        print("[WARNING] No encodings loaded. Recognition will not work until faces are added.", flush=True)
+    
+    print("[INFO] Initializing camera...", flush=True)
     
     # Initialize camera
     video_capture = cv2.VideoCapture(0)
     if not video_capture.isOpened():
         print("[ERROR] Could not open video stream.", file=sys.stderr)
+        shared_last_detection["status"] = "error"
+        shared_last_detection["error"] = "Camera not available"
         return
 
     video_capture.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
     video_capture.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
     video_capture.set(cv2.CAP_PROP_FPS, 30)
     
-    print("[INFO] Starting live camera feed. Press 'q' to quit.")
-
+    print("[INFO] ✓ Camera initialized successfully")
+    
     # Start background processing thread
+    print("[INFO] Starting frame processor thread...")
     processor = FrameProcessor()
     processor.start()
+
+    shared_last_detection["status"] = "running"
+    print("[INFO] ✓ Live recognition now RUNNING")
     
     current_result = (0, None, "Unknown")
     last_recognized = None
     last_log_time = None
 
     try:
+        frame_count = 0
         while not stop_flag.is_set():
             ret, frame = video_capture.read()
             if not ret:
                 print("[WARNING] Failed to capture frame")
                 continue
+
+            frame_count += 1
+            if frame_count % 100 == 0:
+                print(f"[DEBUG] Processed {frame_count} frames")
 
             # Send frame for processing if queue not full
             if processor.frame_queue.qsize() < 2:
@@ -549,9 +564,11 @@ def start_live_check(show_window=True, shared_last_detection=None, stop_flag=Non
                     log_entry(name, current_time)
                     last_recognized = name
                     last_log_time = current_time
+                    print(f"[INFO] ✓ Recognized: {name}")
 
             # Update shared detection data for external access
             shared_last_detection.update({
+                "status": "running",  # Keep status as running
                 "label": int(live_label),
                 "bbox": bbox,
                 "name": name if live_label == 1 else "Spoof",
@@ -587,15 +604,26 @@ def start_live_check(show_window=True, shared_last_detection=None, stop_flag=Non
 
     except KeyboardInterrupt:
         print("\n[INFO] Interrupted by user")
+    except Exception as e:
+        print(f"[ERROR] Error in live check: {e}", file=sys.stderr)
+        import traceback
+        traceback.print_exc()
+        shared_last_detection["status"] = "error"
+        shared_last_detection["error"] = str(e)
     finally:
         # Cleanup resources
+        print("[INFO] Cleaning up...")
         processor.stop()
         processor.join(timeout=2)
         video_capture.release()
         if show_window:
             cv2.destroyAllWindows()
-        print("[INFO] Camera released")
-
+        
+        # Signal shutdown complete
+        shared_last_detection["status"] = "stopped"
+        print("[INFO] ✓ Camera released and shutdown complete")
+        
+        
 def get_last_detection():
     """Get the most recent detection result"""
     global last_detection
@@ -635,76 +663,85 @@ def main():
         
         elif choice == '2':
             print("\n[INFO] Add face mode")
-
             print("1: Add face from webcam")
             print("2: Add face from image file")
             sub_choice = input("Choose method (1/2): ").strip()
-
+    
             name = input("Enter the name of the person: ").strip()
             if not name:
                 print("[ERROR] Name cannot be empty.")
                 continue
-
+    
             # handle existing persons
             if name in encodeDict:
                 resp = input(f"[INFO] '{name}' already exists. Add another encoding? (y/n): ").strip().lower()
                 if resp != "y":
                     continue
-
-            #image from webcam         
+    
+            # Add face from webcam         
             if sub_choice == '1':
                 cv2.destroyAllWindows()
                 time.sleep(0.2)
-
+        
                 cap = cv2.VideoCapture(0)
                 if not cap.isOpened():
                     print("[ERROR] Could not open camera.")
                     continue
-
+        
                 cap.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
                 cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
-
-                print("[INFO] Position face in frame. Capturing in 3 seconds...")
-
-                # countdown
-                for i in range(3, 0, -1):
+        
+                print("[INFO] Position face in frame. Capturing in 8 seconds...")
+        
+                for i in range(8, 0, -1):
                     ret, frame = cap.read()
                     if ret:
+                        # Draw countdown on frame
                         cv2.putText(frame, f"Capturing in {i}...", (50, 50),
-                        cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2)
+                        cv2.FONT_HERSHEY_SIMPLEX, 1.5, (0, 255, 0), 3)
                         cv2.imshow("Add Face", frame)
-                        cv2.waitKey(1000)
-
-                        ret, img = cap.read()
-                        cap.release()
-                        cv2.destroyAllWindows()
-
+                        cv2.waitKey(1000)  # Wait 1 second per iteration
+                    else:
+                        print("[WARNING] Failed to read frame during countdown")
+                        break
+        
+                ret, img = cap.read()
+                cap.release()
+                cv2.destroyAllWindows()
+        
                 if not ret:
                     print("[ERROR] Failed to capture image.")
                     continue
-
-                # add encoding from webcam frame
-                add_face_encoding_indi(name, img)
-                continue
-
-            # add form image
+        
+                # Show what was captured
+                print("[INFO] Image captured! Processing...")
+        
+                # Add encoding from webcam frame
+                success = add_face_encoding_indi(name, img)
+        
+                if success:
+                    print(f"[SUCCESS] Face encoding added for '{name}'")
+                else:
+                    print(f"[ERROR] Failed to add face encoding for '{name}'")
+    
+        # Add from image file
             elif sub_choice == '2':
                 image_path = input("Enter image path: ").strip()
                 if not image_path:
                     print("[ERROR] Image path cannot be empty.")
                     continue
-
-            # use new function you added
-            result = add_face_from_image(name, image_path)
-
-            if result:
-                print(f"[INFO] Successfully added encoding for '{name}' from image.")
-                continue
-
+        
+                # Use the add_face_from_image function
+                result = add_face_from_image(name, image_path)
+        
+                if result:
+                    print(f"[SUCCESS] Successfully added encoding for '{name}' from image.")
+                else:
+                    print(f"[ERROR] Failed to add encoding for '{name}' from image.")
+    
             else:
                 print("[ERROR] Invalid option. Please enter 1 or 2.")
-                continue
-
+        
         elif choice == '3':
             print("\n[INFO] Delete face mode")
             list_faces()

@@ -20,8 +20,10 @@ ARG TARGET=cpu-x86
 RUN apt-get update && apt-get install -y software-properties-common \
     && add-apt-repository ppa:deadsnakes/ppa -y \
     && apt-get update && apt-get install -y \
+    curl \
     python3.10 python3.10-dev python3.10-venv python3.10-distutils \
     python3-pip python3-setuptools python3-wheel
+
 
 
 # set Python 3.10 as default python / python3

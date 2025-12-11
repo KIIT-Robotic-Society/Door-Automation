@@ -62,6 +62,7 @@ std::atomic<bool> heartbeat_running(true);
 std::atomic<bool> live_polling_running(false);
 std::atomic<bool> face_detected(false);
 std::atomic<bool> live_semaphore(false);  // prevents sensor trigger while live is active
+std::atomic<bool> api_ready(false);       // tracks API availability
 
 // synchronization primitives
 std::mutex mtx;
@@ -234,64 +235,101 @@ json post_json(const std::string& url) {
 bool gpio_init(unsigned int line = GPIO_LINE) {
     try {
         chip_ptr = std::make_unique<gpiod::chip>("gpiochip0");
-    } catch (const std::exception& e) {
-        ERROR("Opening gpiochip0 failed: " + std::string(e.what()));
+    } catch (...) {
+        ERROR("GPIOchip open FAILED");
         return false;
     }
 
-    // ---- door control (GPIO17) 
+    // door control
     try {
         gpiod::line raw = chip_ptr->get_line(line);
         gpio_line_ptr = std::make_unique<gpiod::line>(std::move(raw));
-        gpio_line_ptr->request({"door", gpiod::line_request::DIRECTION_OUTPUT, 0});
+
+        gpiod::line_request config{
+            "door",
+            gpiod::line_request::DIRECTION_OUTPUT,
+            0
+        };
+        gpio_line_ptr->request(config);
         gpio_line_ptr->set_value(0);
-    } catch (const std::exception& e) {
-        ERROR("Door GPIO init FAILED (line " + std::to_string(line) + "): " + std::string(e.what()));
-        return false;  // cannot run system without door control
+
+        INFO("Door GPIO initialized on line " + std::to_string(line));
+    } catch (...) {
+        ERROR("Door GPIO initialization FAILED (line " + std::to_string(line) + ")");
+        return false; 
     }
 
-    // ---- idle indicator (GPIO27)
+    // idle indicator 
     try {
         gpiod::line idle_raw = chip_ptr->get_line(GPIO_IDLE_LINE);
         gpio_idle_ptr = std::make_unique<gpiod::line>(std::move(idle_raw));
-        gpio_idle_ptr->request({"idle-led", gpiod::line_request::DIRECTION_OUTPUT, 0});
-        gpio_idle_ptr->set_value(1);   // IDLE = ON at boot
-    } catch (const std::exception& e) {
+
+        gpiod::line_request config{
+            "idle-led",
+            gpiod::line_request::DIRECTION_OUTPUT,
+            0
+        };
+        gpio_idle_ptr->request(config);
+        gpio_idle_ptr->set_value(1); // ON at boot
+
+        INFO("Idle GPIO initialized on line " + std::to_string(GPIO_IDLE_LINE));
+    } catch (...) {
         WARN("Idle GPIO (line " + std::to_string(GPIO_IDLE_LINE) +
-             ") init failed, continuing without idle LED: " + std::string(e.what()));
+             ") init failed, continuing without idle LED");
         gpio_idle_ptr.reset();
     }
 
-    // ---- live indicator (GPIO22)
+    // live indicator 
     try {
         gpiod::line live_raw = chip_ptr->get_line(GPIO_LIVE_LINE);
         gpio_live_ptr = std::make_unique<gpiod::line>(std::move(live_raw));
-        gpio_live_ptr->request({"live-led", gpiod::line_request::DIRECTION_OUTPUT, 0});
-        gpio_live_ptr->set_value(0);   // OFF at boot
-    } catch (const std::exception& e) {
+
+        gpiod::line_request config{
+            "live-led",
+            gpiod::line_request::DIRECTION_OUTPUT,
+            0
+        };
+        gpio_live_ptr->request(config);
+        gpio_live_ptr->set_value(0); 
+
+        INFO("Live GPIO initialized on line " + std::to_string(GPIO_LIVE_LINE));
+    } catch (...) {
         WARN("Live GPIO (line " + std::to_string(GPIO_LIVE_LINE) +
-             ") init failed, continuing without live LED: " + std::string(e.what()));
+             ") init failed, continuing without live LED");
         gpio_live_ptr.reset();
     }
 
     INFO("GPIO initialized: door=" + std::to_string(line) +
          ", idle=" + std::to_string(GPIO_IDLE_LINE) +
          ", live=" + std::to_string(GPIO_LIVE_LINE));
+
     return true;
 }
 
 
 void gpio_set(int v) {
-    if (!gpio_line_ptr) {
-        WARN("GPIO not initialized, cannot set value");
-        return;
-    }
+    if (!gpio_line_ptr) return;
+    gpio_line_ptr->set_value(v);
+}
+
+void gpio_idle_set(int v) {
+    if (!gpio_idle_ptr) return;
     try {
-        gpio_line_ptr->set_value(v);
-    } catch (const std::exception& e) {
-        ERROR("GPIO set failed: " + std::string(e.what()));
+        gpio_idle_ptr->set_value(v);
+    } catch (...) {
+        ERROR("Idle GPIO set failed");
     }
 }
+
+void gpio_live_set(int v) {
+    if (!gpio_live_ptr) return;
+    try {
+        gpio_live_ptr->set_value(v);
+    } catch (...) {
+        ERROR("Live GPIO set failed");
+    }
+}
+
 
 void gpio_cleanup() {
     try {
@@ -328,6 +366,16 @@ void heartbeat_loop() {
         // Check if API is responding correctly
         if (response.empty() || !response.contains("status")) {
             WARN("Heartbeat failed - API may be down");
+            api_ready = false;
+        } else if (response["status"] == "live") {
+            // API is up and running
+            if (!api_ready) {
+                INFO("API connection established");
+            }
+            api_ready = true;
+        } else {
+            WARN("Unexpected heartbeat status: " + response["status"].get<std::string>());
+            api_ready = false;
         }
         
         std::this_thread::sleep_for(std::chrono::seconds(HEARTBEAT_INTERVAL_SEC));
@@ -425,7 +473,6 @@ void live_polling_loop() {
     INFO("Live polling thread stopped");
 }
 
-// Llive control functions
 void start_live() {
     INFO("Starting live recognition...");
 
@@ -440,18 +487,77 @@ void start_live() {
           (j["status"] == "started" || j["status"] == "already_running"))) {
 
         ERROR("Live start FAILED: " + j.dump());
+        
+        // restore LED states on failure
+        if (gpio_live_ptr) gpio_live_ptr->set_value(0);
+        if (gpio_idle_ptr) gpio_idle_ptr->set_value(1);
         return;
     }
 
-    INFO("Live recognition started successfully");
-    
-    // reset state and start polling thread
+    INFO("Live process launched — waiting for ML worker to initialize...");
+
+    // ------------ FIXED: wait for Python ML to be ready ------------
+    bool ml_ready = false;
+    for (int i = 0; i < 100; i++) {  // wait up to 10 seconds (increased timeout)
+        json st = get_json(API_URL + "/live/status");
+
+        if (!st.contains("status")) {
+            // No status yet, keep waiting
+            std::this_thread::sleep_for(std::chrono::milliseconds(100));
+            continue;
+        }
+
+        std::string status = st["status"].get<std::string>();
+        
+        // Log status for debugging
+        if (i % 10 == 0) {  // Log every second
+            INFO("Current ML status: " + status);
+        }
+
+        // CRITICAL FIX: Accept EITHER "ready" OR "running" as success
+        // The status might change from ready→running very quickly
+        if (status == "ready" || status == "running") {
+            INFO("ML worker is initialized (status: " + status + ")");
+            ml_ready = true;
+            break;
+        }
+        
+        // Check for error state
+        if (status == "error") {
+            ERROR("ML worker reported error state");
+            if (st.contains("error")) {
+                ERROR("Error details: " + st["error"].get<std::string>());
+            }
+            break;
+        }
+
+        std::this_thread::sleep_for(std::chrono::milliseconds(100));
+    }
+
+    if (!ml_ready) {
+        ERROR("ML worker did not initialize in time. Aborting live mode.");
+        
+        // Get final status for debugging
+        json final_st = get_json(API_URL + "/live/status");
+        ERROR("Final status: " + final_st.dump());
+        
+        // fail closed — revert LED states
+        if (gpio_live_ptr) gpio_live_ptr->set_value(0);
+        if (gpio_idle_ptr) gpio_idle_ptr->set_value(1);
+        return;
+    }
+    // ---------------------------------------------------------------
+
+    INFO("Live recognition fully initialized — starting polling loop.");
+
+    // reset state and start polling
     face_detected = false;
     live_polling_running = true;
     live_semaphore = true;
 
     live_thread = std::thread(live_polling_loop);
 }
+
 
 void stop_live() {
     INFO("Stopping live recognition...");
@@ -536,28 +642,6 @@ void sensor_loop() {
     INFO("Sensor thread stopped");
 }
 
-// server heartbeat check
-bool server_ready() {
-    json st = get_json(API_URL + "/live/status");
-
-    if (st.empty()) {
-        WARN("API unreachable → Waiting for server...");
-        return false;
-    }
-
-    if (!st.contains("status")) {
-        WARN("API returned malformed response → server not ready");
-        return false;
-    }
-
-    if (st["status"] != "live") {
-        WARN("Server not initialized → status = " + st["status"].get<std::string>());
-        return false;
-    }
-
-    return true;
-}
-
 // live controller thread - sensor triggers and live recognition
 void live_controller_loop() {
     INFO("Live controller thread started");
@@ -574,19 +658,30 @@ void live_controller_loop() {
         sensor_trigger = false;
         lk.unlock();
 
-        // wait until server signals "status: live"
-        while (program_running) {
-            if (server_ready()) {
-            INFO("Server ready → Starting live recognition");
-            break;  // <--- correctly breaks only this loop
+        // wait until API is ready (checked by heartbeat thread)
+        int retry_count = 0;
+        const int MAX_RETRIES = 30; // 30 seconds max wait
+        
+        while (program_running && !api_ready) {
+            if (retry_count == 0) {
+                WARN("Waiting for API to be ready...");
             }
-
-            WARN("Server not initialized → trying again...");
+            
             std::this_thread::sleep_for(std::chrono::seconds(1));
+            retry_count++;
+            
+            if (retry_count >= MAX_RETRIES) {
+                ERROR("API not ready after 30 seconds, skipping this trigger");
+                break;
+            }
         }
 
-        // program is shutting down while waiting for server
-        if (!program_running) return;
+        // skip if program is shutting down or API timeout
+        if (!program_running || retry_count >= MAX_RETRIES) {
+            continue;
+        }
+
+        INFO("API ready → Starting live recognition");
 
         // start live recognition
         start_live();
@@ -609,6 +704,7 @@ void live_controller_loop() {
 
             std::this_thread::sleep_for(std::chrono::milliseconds(POLLING_INTERVAL_MS));
         }
+        
         // stop live recognition
         stop_live();
     }
@@ -638,12 +734,29 @@ int main() {
     sensor_thread          = std::thread(sensor_loop);
     live_controller_thread = std::thread(live_controller_loop);
 
+    INFO("Waiting for API connection...");
+    
+    // wait for initial API connection before proceeding
+    int wait_count = 0;
+    while (!api_ready && program_running) {
+        std::this_thread::sleep_for(std::chrono::seconds(1));
+        wait_count++;
+        
+        if (wait_count % 5 == 0) {
+            WARN("Still waiting for API... (" + std::to_string(wait_count) + "s)");
+        }
+    }
+    
+    if (api_ready) {
+        INFO("API connected - System ready");
+    }
+
+    // main loop
     while (program_running) {
         std::this_thread::sleep_for(std::chrono::seconds(1));
     }
 
     INFO("Initiating shutdown sequence...");
-
 
     heartbeat_running = false;
     cv.notify_all();
@@ -657,6 +770,6 @@ int main() {
     gpio_cleanup();
     curl_global_cleanup();
 
-    INFO("=== System shut down cleanly ===");
+    INFO("=== System shut down ===");
     return 0;
 }
