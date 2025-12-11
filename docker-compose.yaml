@@ -1,0 +1,52 @@
+services:
+  door-automation:
+    # build configuration
+    # uses the Dockerfile in the project root.
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        TARGET: ${TARGET}
+
+    container_name: door-automation
+
+    # compose profiles enable selecting hardware at runtime:
+    #   docker compose --profile gpu up
+    profiles: ["cpu", "gpu", "pi"]
+
+    # privileged mode required for:
+    # - GPIO access (libgpiod)
+    # - Hardware video devices
+    privileged: true
+
+    # /dev/video0 → camera
+    # /dev/gpiochip0 → GPIO control (libgpiod)
+    devices:
+      - /dev/video0:/dev/video0
+      - /dev/gpiochip0:/dev/gpiochip0
+
+    # environment variables for GUI + Python behavior
+    # - DISPLAY: forward X11
+    # - QT_X11_NO_MITSHM: fixes Qt shared memory issues
+    # - LIBGL_ALWAYS_SOFTWARE: avoids GPU OpenGL issues inside containers
+    environment:
+      - DISPLAY=${DISPLAY}
+      - PYTHONUNBUFFERED=1          # forces real-time Python prints
+      - QT_X11_NO_MITSHM=1          # prevents Qt from crashing in Docker
+      - LIBGL_ALWAYS_SOFTWARE=1     # avoids OpenGL/Mesa crashes
+
+ 
+    # volume mounts:
+    # - mount project folder into /app for hot-reload
+    # - mount X11 socket for GUI display support
+    volumes:
+      - ./:/app
+      - /tmp/.X11-unix:/tmp/.X11-unix
+
+    # expose web server or API running on port 8000
+    ports:
+      - "8000:8000"
+
+
+    restart: unless-stopped
+    command: ["sleep", "infinity"]
