@@ -68,6 +68,7 @@ if ! groups $USER | grep -q "\bdocker\b"; then
     echo "[INFO] Adding user to docker and video groups..."
     sudo usermod -aG docker $USER
     sudo usermod -aG video $USER
+    sudo usermod -a -G gpio $USER
     echo "Please log out and log back in to apply permissions."
 fi
 

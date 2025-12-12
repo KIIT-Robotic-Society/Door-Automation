@@ -242,7 +242,7 @@ bool gpio_init(unsigned int line = GPIO_LINE) {
 
     // door control
     try {
-        gpiod::line raw = chip_ptr->get_line(line);
+        gpiod::line raw = chip_ptr->get_line(GPIO_LINE);
         gpio_line_ptr = std::make_unique<gpiod::line>(std::move(raw));
 
         gpiod::line_request config{
@@ -440,11 +440,11 @@ void live_polling_loop() {
                     
                     // activate door unlock
                     INFO("GPIO-HIGH for " + n);
-                    gpio_set(1);
+                    gpio_line_ptr->set_value(1);
                     if (gpio_live_ptr) gpio_live_ptr->set_value(0);  // ensure live indicator off during unlock
                     std::this_thread::sleep_for(std::chrono::seconds(GPIO_HIGH_DURATION_SEC));
                     INFO("GPIO-LOW");
-                    gpio_set(0);
+                    gpio_line_ptr->set_value(0)
                     if (gpio_idle_ptr) gpio_idle_ptr->set_value(1);   // return to idle mode
 
 
