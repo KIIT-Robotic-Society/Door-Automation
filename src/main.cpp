@@ -35,6 +35,7 @@ constexpr int LIVE_DURATION_SECONDS   = 30;   // max time to wait for face recog
 constexpr unsigned int GPIO_LINE      = 17;   // GPIO pin for door control
 constexpr unsigned int GPIO_IDLE_LINE = 27;   // Indicator for idle state
 constexpr unsigned int GPIO_LIVE_LINE = 22;   // Indicator for live/ML active
+constexpr unsigned int GPIO_LED       = 23;   // Indicator for live/ML active
 constexpr int COOLDOWN_SECONDS        = 60;   // prevent duplicate triggers for same person
 
 // Polling and network configuration
@@ -80,6 +81,7 @@ std::unique_ptr<gpiod::chip> chip_ptr;
 std::unique_ptr<gpiod::line> gpio_line_ptr;
 std::unique_ptr<gpiod::line> gpio_idle_ptr;
 std::unique_ptr<gpiod::line> gpio_live_ptr;
+std::unique_ptr<gpiod::line> gpio_led_ptr;
 
 
 // logging system
@@ -299,9 +301,30 @@ bool gpio_init(unsigned int line = GPIO_LINE) {
         gpio_live_ptr.reset();
     }
 
-    INFO("GPIO initialized: door=" + std::to_string(line) +
+    // led
+    try {
+        gpiod::line led_raw = chip_ptr->get_line(GPIO_LED);
+        gpio_led_ptr = std::make_unique<gpiod::line>(std::move(led_raw));
+
+        gpiod::line_request config{
+            "led",
+            gpiod::line_request::DIRECTION_OUTPUT,
+            0
+        };
+        gpio_led_ptr->request(config);
+        gpio_led_ptr->set_value(0); 
+
+        INFO("Live GPIO initialized on line " + std::to_string(GPIO_LED));
+    } catch (...) {
+        WARN("Live GPIO (line " + std::to_string(GPIO_LED) +
+             ") init failed, continuing without live LED");
+        gpio_led_ptr.reset();
+    }
+
+    INFO("GPIO initialized: door=" + std::to_string(GPIO_LINE) +
          ", idle=" + std::to_string(GPIO_IDLE_LINE) +
-         ", live=" + std::to_string(GPIO_LIVE_LINE));
+         ", live=" + std::to_string(GPIO_LIVE_LINE) +
+         ", led=" + std::to_string(GPIO_LED));
 
     return true;
 }
@@ -442,9 +465,10 @@ void live_polling_loop() {
                     INFO("GPIO-HIGH for " + n);
                     gpio_line_ptr->set_value(1);
                     if (gpio_live_ptr) gpio_live_ptr->set_value(0);  // ensure live indicator off during unlock
+                    if (gpio_led_ptr) gpio_led_ptr->set_value(0);   //  ensure led is off during unlock
                     std::this_thread::sleep_for(std::chrono::seconds(GPIO_HIGH_DURATION_SEC));
                     INFO("GPIO-LOW");
-                    gpio_line_ptr->set_value(0)
+                    gpio_line_ptr->set_value(0);
                     if (gpio_idle_ptr) gpio_idle_ptr->set_value(1);   // return to idle mode
 
 
@@ -479,6 +503,7 @@ void start_live() {
     // Set LED states
     if (gpio_idle_ptr) gpio_idle_ptr->set_value(0);   // idle OFF
     if (gpio_live_ptr) gpio_live_ptr->set_value(1);   // live ON
+    if (gpio_led_ptr) gpio_led_ptr->set_value(1);     // led ON
     
     json j = post_json(API_URL + "/live/start");
 
@@ -490,6 +515,7 @@ void start_live() {
         
         // restore LED states on failure
         if (gpio_live_ptr) gpio_live_ptr->set_value(0);
+        if (gpio_led_ptr) gpio_led_ptr->set_value(0);     
         if (gpio_idle_ptr) gpio_idle_ptr->set_value(1);
         return;
     }
@@ -543,6 +569,7 @@ void start_live() {
         
         // fail closed — revert LED states
         if (gpio_live_ptr) gpio_live_ptr->set_value(0);
+        if (gpio_led_ptr) gpio_led_ptr->set_value(0); 
         if (gpio_idle_ptr) gpio_idle_ptr->set_value(1);
         return;
     }
@@ -594,6 +621,7 @@ void stop_live() {
 
     // restore LED states
     if (gpio_live_ptr) gpio_live_ptr->set_value(0);   // live OFF
+    if (gpio_led_ptr) gpio_led_ptr->set_value(0);     // led OFF
     if (gpio_idle_ptr) gpio_idle_ptr->set_value(1);   // idle ON
     live_semaphore = false;
 }
