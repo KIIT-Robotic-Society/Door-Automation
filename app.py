@@ -724,21 +724,220 @@ def main():
                 else:
                     print(f"[ERROR] Failed to add face encoding for '{name}'")
     
-        # Add from image file
+        # Add from image file or directory
             elif sub_choice == '2':
-                image_path = input("Enter image path: ").strip()
-                if not image_path:
-                    print("[ERROR] Image path cannot be empty.")
+                path = input("Enter image path or directory path: ").strip()
+                if not path:
+                    print("[ERROR] Path cannot be empty.")
                     continue
-        
-                # Use the add_face_from_image function
-                result = add_face_from_image(name, image_path)
-        
-                if result:
-                    print(f"[SUCCESS] Successfully added encoding for '{name}' from image.")
+                
+                # Check if it's a directory or single file
+                if os.path.isdir(path):
+                    # Bulk import from directory
+                    print(f"\n[INFO] Directory detected: {path}")
+                    
+                    # Count image files
+                    image_extensions = ('.jpg', '.jpeg', '.png', '.bmp', '.gif')
+                    image_files = [f for f in os.listdir(path) 
+                                   if f.lower().endswith(image_extensions) and 
+                                   os.path.isfile(os.path.join(path, f))]
+                    
+                    if not image_files:
+                        print("[ERROR] No image files found in directory.")
+                        continue
+                    
+                    print(f"[INFO] Found {len(image_files)} images")
+                    print("\nChoose import method:")
+                    print("1: review each image and assign name")
+                    print("2: use folder names")
+                    print("3: Single name -- prefered")
+                    print("4: Filename prefix ")
+                    
+                    method = input("\nChoose method (1/2/3/4): ").strip()
+                    
+                    success_count = 0
+                    fail_count = 0
+                    processed_names = set()
+                    
+                    if method == '1':
+                        # Method 1: Interactive mode - show each image
+                        print("\n[INFO] Interactive mode - Press 'q' to skip image")
+                        print("[INFO] For each image, enter the person's name")
+                        print("-" * 60)
+                        
+                        for i, filename in enumerate(sorted(image_files), 1):
+                            filepath = os.path.join(path, filename)
+                            
+                            # Display the image
+                            img = cv2.imread(filepath)
+                            if img is None:
+                                print(f"[WARNING] Could not read {filename}, skipping")
+                                fail_count += 1
+                                continue
+                            
+                            # Resize for display if too large
+                            display_img = img.copy()
+                            h, w = display_img.shape[:2]
+                            if w > 800:
+                                scale = 800 / w
+                                display_img = cv2.resize(display_img, (800, int(h * scale)))
+                            
+                            # Show image
+                            window_name = f"[{i}/{len(image_files)}] {filename} - Review and Enter Name"
+                            cv2.imshow(window_name, display_img)
+                            cv2.waitKey(100)  # Brief delay to show window
+                            
+                            print(f"\n[{i}/{len(image_files)}] Image: {filename}")
+                            person_name = input("Enter person's name (or 's' to skip, 'q' to quit): ").strip()
+                            
+                            cv2.destroyWindow(window_name)
+                            
+                            if person_name.lower() == 'q':
+                                print("[INFO] Quitting interactive mode")
+                                break
+                            
+                            if person_name.lower() == 's' or not person_name:
+                                print("  → Skipped")
+                                fail_count += 1
+                                continue
+                            
+                            # Ask if same person for next images
+                            if i < len(image_files):
+                                reuse = input(f"  → Use '{person_name}' for remaining images? (y/n): ").strip().lower()
+                                if reuse == 'y':
+                                    # Batch process remaining with same name
+                                    print(f"[INFO] Processing remaining {len(image_files) - i} images as '{person_name}'")
+                                    remaining = image_files[i:]
+                                    for rem_file in remaining:
+                                        rem_path = os.path.join(path, rem_file)
+                                        result = add_face_from_image(person_name, rem_path)
+                                        if result:
+                                            success_count += 1
+                                            processed_names.add(person_name)
+                                        else:
+                                            fail_count += 1
+                                    break
+                            
+                            # Add single image
+                            result = add_face_from_image(person_name, filepath)
+                            if result:
+                                success_count += 1
+                                processed_names.add(person_name)
+                                print(f"  ✓ Added")
+                            else:
+                                fail_count += 1
+                                print(f"  ✗ Failed")
+                        
+                        cv2.destroyAllWindows()
+                    
+                    elif method == '2':
+                        # Method 2: Use subdirectory names
+                        subdirs = [d for d in os.listdir(path) 
+                                   if os.path.isdir(os.path.join(path, d))]
+                        
+                        if not subdirs:
+                            print("[ERROR] No subdirectories found.")
+                            continue
+                        
+                        for subdir in subdirs:
+                            subdir_path = os.path.join(path, subdir)
+                            person_name = subdir
+                            
+                            sub_images = [f for f in os.listdir(subdir_path)
+                                          if f.lower().endswith(image_extensions) and
+                                          os.path.isfile(os.path.join(subdir_path, f))]
+                            
+                            if not sub_images:
+                                continue
+                            
+                            print(f"\n[INFO] Processing: {person_name} ({len(sub_images)} images)")
+                            
+                            for filename in sub_images:
+                                filepath = os.path.join(subdir_path, filename)
+                                result = add_face_from_image(person_name, filepath)
+                                
+                                if result:
+                                    success_count += 1
+                                    processed_names.add(person_name)
+                                    print(f"  ✓ {filename}")
+                                else:
+                                    fail_count += 1
+                                    print(f"  ✗ {filename}")
+                    
+                    elif method == '3':
+                        # Method 3: Single name for all images
+                        single_name = input("Enter the name for ALL images: ").strip()
+                        if not single_name:
+                            print("[ERROR] Name cannot be empty.")
+                            continue
+                        
+                        print(f"\n[INFO] Processing {len(image_files)} images as '{single_name}'")
+                        
+                        for filename in image_files:
+                            filepath = os.path.join(path, filename)
+                            result = add_face_from_image(single_name, filepath)
+                            
+                            if result:
+                                success_count += 1
+                                processed_names.add(single_name)
+                                print(f"  ✓ {filename}")
+                            else:
+                                fail_count += 1
+                                print(f"  ✗ {filename}")
+                    
+                    elif method == '4':
+                        # Method 4: Extract from filename prefix
+                        import re
+                        
+                        for filename in image_files:
+                            filepath = os.path.join(path, filename)
+                            
+                            # Try to extract name (letters before underscore/number)
+                            match = re.match(r'^([A-Za-z\s]+)', filename)
+                            if match:
+                                person_name = match.group(1).strip()
+                            else:
+                                print(f"[WARNING] Could not extract name from '{filename}', skipping")
+                                fail_count += 1
+                                continue
+                            
+                            result = add_face_from_image(person_name, filepath)
+                            
+                            if result:
+                                success_count += 1
+                                processed_names.add(person_name)
+                                print(f"  ✓ {filename} → {person_name}")
+                            else:
+                                fail_count += 1
+                                print(f"  ✗ {filename}")
+                    
+                    else:
+                        print("[ERROR] Invalid method choice.")
+                        continue
+                    
+                    # Summary
+                    print("\n" + "="*60)
+                    print("BULK IMPORT SUMMARY")
+                    print("="*60)
+                    print(f"✓ Successfully added: {success_count} encodings")
+                    print(f"✗ Failed: {fail_count} images")
+                    print(f"👤 Total people: {len(processed_names)}")
+                    if processed_names:
+                        print(f"Names: {', '.join(sorted(processed_names))}")
+                    print("="*60)
+                
+                elif os.path.isfile(path):
+                    # Single file import (original behavior)
+                    result = add_face_from_image(name, path)
+                    
+                    if result:
+                        print(f"[SUCCESS] Successfully added encoding for '{name}' from image.")
+                    else:
+                        print(f"[ERROR] Failed to add encoding for '{name}' from image.")
+                
                 else:
-                    print(f"[ERROR] Failed to add encoding for '{name}' from image.")
-    
+                    print(f"[ERROR] Path does not exist: {path}")
+            
             else:
                 print("[ERROR] Invalid option. Please enter 1 or 2.")
         
